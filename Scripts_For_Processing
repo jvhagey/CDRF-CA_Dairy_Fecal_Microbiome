@@ -1,0 +1,177 @@
+#Scripts Used to Process 16s Sequences from Dairy Cow Fecal Microbiome
+#Step 1 Merging Forward and Reverse Reads
+###---------------------------------------------Running Flash2 to Merge Reads--------------------------------------------------------------------------
+#!/bin/bash
+##
+#SBATCH -o /share/tearlab/Maga/Jill/16s/Merged/Flash2.out
+#SBATCH -e /share/tearlab/Maga/Jill/16s/Merged/Flash2.err
+module load flash2/c41a82e
+
+#options used to calculate the maxoverlap
+time flash2 /share/tearlab/Maga/Jill/16s/DSS-hLZ_S1_L001_R1_001.fastq /share/tearlab/Maga/Jill/16s/DSS-hLZ_S1_L001_R2_001.fastq -o CDRF_Feces -r 250 -f 290 -s 29
+
+###---------------------------------------------Running FastQC on Merged Files---------------------------------------------------------------------
+#!/bin/bash
+##
+#SBATCH -p gc256
+#SBATCH -o /share/tearlab/Maga/Jill/16s/FastQC/FastQC.out
+#SBATCH -e /share/tearlab/Maga/Jill/16s/FastQC/FastQC.err
+module load fastqc/v0.11.2
+
+time fastqc /share/tearlab/Maga/Jill/16s/Merged/CDRF_Feces_Merged.extendedFrags.fastq -o /share/tearlab/Maga/Jill/16s/FastQC/
+
+#Step 3 Screening for Phix and cow Mitochondria
+###---------------------------------------------Running FastQ_Screen and FastQC on Merge Reads------------------------------------------------------------------
+#!/bin/bash
+##
+#SBATCH -o /share/tearlab/Maga/Jill/16s/Fastq_screen/Fastq_screen.out
+#SBATCH -e /share/tearlab/Maga/Jill/16s/Fastq_screen/Fastq_screen.err
+module load bowtie2/2.2.8
+
+time bowtie2-build -f /share/tearlab/Maga/Jill/16s/Fastq_screen/phage_phiX174_genome.fasta Phage
+time bowtie2-build -f /share/tearlab/Maga/Jill/16s/Fastq_screen/Bos_taurus_mito_genome.fasta Cow
+time fastq_screen --threads 8 --subset 0 --aligner bowtie2 --force --nohits /share/tearlab/Maga/Jill/16s/Mothur/CDRF_Feces.extendedFrags.trimmed.fastq
+time fastqc /share/tearlab/Maga/Jill/16s/Mothur/CDRF_Feces.extendedFrags.trimmed.fastq -o /share/tearlab/Maga/Jill/16s/Fastq_screen/ 
+
+#Step 4 Trimming Merged Reads
+###---------------------------------------------Running Trimmomatic and FastQC on Merge Reads------------------------------------------------------------------
+#!/bin/bash
+##
+#SBATCH -n 4 
+#SBATCH -p gc256
+#SBATCH -o /share/tearlab/Maga/Jill/16s/Trimmomatic/Trimmomatic.out
+#SBATCH -e /share/tearlab/Maga/Jill/16s/Trimmomatic/Trimmomatic.err
+module load trimmomatic/0.33
+module load fastqc/v0.11.2
+
+time trimmomatic SE -threads 4 -phred33 /share/tearlab/Maga/Jill/16s/Merged/CDRF_Feces.extendedFrags.fastq /share/tearlab/Maga/Jill/16s/Trimmomatic/CDRF_Feces.extendedFrags.trimmed.fastq ILLUMINACLIP:/share/tearlab/Maga/Jill/adapter.fasta:2:30:10 LEADING:25 TRAILING:25 SLIDINGWINDOW:4:25 MINLEN:200
+time fastqc /share/tearlab/Maga/Jill/16s/Trimmomatic/CDRF_Feces.extendedFrags.trimmed.fastq -o /share/tearlab/Maga/Jill/16s/FastQC/
+
+#Step 5 Removing Merged Reads longer than 300bp
+###---------------------------------------------Running Trimmomatic and FastQC on Merge Reads------------------------------------------------------------------
+#making fasta file from fastq
+#bat file to run sbatch mothur
+fastq.info(fastq=/share/tearlab/Maga/Jill/16s/Mothur/CDRF_Feces.extendedFrags.trimmed_no_hits.fastq, qfile=T)
+summary.seqs(fasta=/share/tearlab/Maga/Jill/16s/Mothur/CDRF_Feces.extendedFrags.trimmed_no_hits.fasta)
+
+#!/bin/bash
+##
+#SBATCH -o /share/tearlab/Maga/Jill/16s/Mothur/Mothur.out
+#SBATCH -e /share/tearlab/Maga/Jill/16s/Mothur/Mothur.err
+module load mothur/1.36.1
+mothur /share/tearlab/Maga/Jill/16s/Mothur/screen4largeseq.bat
+
+#Removing reads less than 200bp or more than 300bp 
+#bat file to run sbatch mothur
+screen.seqs(fasta=/share/tearlab/Maga/Jill/16s/Mothur/CDRF_Feces.extendedFrags.trimmed_no_hits.fasta, minlength=200, maxlength=302)
+summary.seqs(fasta=/share/tearlab/Maga/Jill/16s/Mothur/CDRF_Feces.extendedFrags.trimmed_no_hits.good.fasta)
+
+#!/bin/bash
+##
+#SBATCH -o /share/tearlab/Maga/Jill/16s/Mothur/Mothur.out
+#SBATCH -e /share/tearlab/Maga/Jill/16s/Mothur/Mothur.err
+module load mothur/1.36.1
+mothur /share/tearlab/Maga/Jill/16s/Mothur/screen4largeseq.bat
+
+#Converting fasta file from mothur screening into fastq file for Qiime analysis 
+#bat file to run sbatch mothur
+list.seqs(fasta=/share/tearlab/Maga/Jill/16s/Mothur/CDRF_Feces.extendedFrags.trimmed_no_hits.good.fasta)
+get.seqs(accnos=/share/tearlab/Maga/Jill/16s/Mothur/CDRF_Feces.extendedFrags.trimmed_no_hits.good.accnos, qfile=/share/tearlab/Maga/Jill/16s/Mothur/CDRF_Feces.extendedFrags.trimmed_no_hits.qual)
+make.fastq(fasta=/share/tearlab/Maga/Jill/16s/Mothur/CDRF_Feces.extendedFrags.trimmed_no_hits.good.fasta, qfile=/share/tearlab/Maga/Jill/16s/Mothur/CDRF_Feces.extendedFrags.trimmed_no_hits.pick.qual)
+
+#!/bin/bash
+##
+#SBATCH -o /share/tearlab/Maga/Jill/16s/Mothur/Mothur.out
+#SBATCH -e /share/tearlab/Maga/Jill/16s/Mothur/Mothur.err
+module load mothur/1.36.1
+
+mothur /share/tearlab/Maga/Jill/16s/Mothur/fastq2fasta.bat
+###---------------------------------------------Running FastQC on Merged/Trimmed/Filtered Files---------------------------------------------------------------------
+#!/bin/bash
+##
+#SBATCH -p gc256
+#SBATCH -o /share/tearlab/Maga/Jill/16s/FastQC/FastQC.out
+#SBATCH -e /share/tearlab/Maga/Jill/16s/FastQC/FastQC.err
+module load fastqc/v0.11.2
+
+time fastqc /share/tearlab/Maga/Jill/16s/Mothur/seqprep_assembled_no_hits.good.fastq -o /share/tearlab/Maga/Jill/16s/Mothur/
+
+#Step 5 Run data through Qiime
+###---------------------------------------------Running Qiime on Trimmed Reads------------------------------------------------------------------
+#!/bin/bash
+##
+#SBATCH -p gc
+#SBATCH -o /share/tearlab/Maga/Jill/16s/Workflow_feces1.out
+#SBATCH -e /share/tearlab/Maga/Jill/16s/Workflow_feces1.err
+module load qiime/1.9.1
+
+#time extract_barcodes.py -f /share/tearlab/Maga/Jill/16s/Mothur/seqprep_assembled_no_hits.good.fastq -c barcode_single_end -o /share/tearlab/Maga/Jill/16s/Barcodes -l 8 -a -m /share/tearlab/Maga/Jill/16s/MappingFiles_CDRF_Feces.txt
+#time split_libraries_fastq.py -i /share/tearlab/Maga/Jill/16s/Mothur/seqprep_assembled_no_hits.good.fastq -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces --phred_offset 33 -q 29 -b /share/tearlab/Maga/Jill/16s/Barcodes/barcodes.fastq -m /share/tearlab/Maga/Jill/16s/MappingFiles_CDRF_Feces.txt --barcode_type 8
+
+time identify_chimeric_seqs.py --chimera_detection_method usearch61 -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/seqs.fna --reference_seqs_fp /share/tearlab/Maga/Jill/16s/gg_13_8_otus/rep_set/97_otus.fasta -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_chimera_checking/
+echo "Done Identifing chimeric sequences"
+time filter_fasta.py -f /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/seqs.fna -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/seqs_chimeras_filtered.fna -s /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_chimera_checking/chimeras.txt -n
+echo "Done Filtering chimeric sequences"
+
+#File qiime_parameters has one line "pick_otus:otu_picking_method usearch61"
+time pick_de_novo_otus.py -f --parallel --jobs_to_start 8 -p /share/tearlab/Maga/Jill/16s/qiime_parameters -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/seqs_chimeras_filtered.fna -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/
+echo "Done picking OTUs"
+time biom summarize-table -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/otu_table.biom -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/results_summary_otu_picking.txt
+echo "Done Summarize Picking OTUs Feces"
+
+time filter_samples_from_otu_table.py -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/otu_table.biom -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/otu_table_control_only.biom -m /share/tearlab/Maga/Jill/16s/MappingFiles_CDRF_Feces.txt -s 'Sample:Water'
+echo "Done Creating biom file of controls"
+time filter_samples_from_otu_table.py -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/otu_table.biom -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/otu_table_not_control.biom -m /share/tearlab/Maga/Jill/16s/MappingFiles_CDRF_Feces.txt -s 'Sample:*,!Water'
+echo "Done filtering out Control Samples"
+time biom summarize-table -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/otu_table_not_control.biom -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/results_summary_filtered_controls.txt
+echo "Done Summarize OTUs with Control Sample Removed"
+
+time filter_taxa_from_otu_table.py -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/otu_table_not_control.biom -n f__mitochondria,c__Chloroplast -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/otu_table_not_control_removed_mitos_chloro.biom
+echo  "Done Filtering Taxa"
+time biom summarize-table -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/otu_table_not_control_removed_mitos_chloro.biom -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/otu_table_not_control_removed_mitos_chloro.txt
+echo "Done Summarize Picking OTUs Feces"
+
+#step 6 Data analysis with Phyloseq and Differential abundance testing with DESeq2
+###------------------------------Importing OTU table and Phyloseq/DESeq2 R OTU table/Tree made in Qiime------------------------------------------------------------------
+
+#See R file for script
+
+#step 7 Data analysis with Phyloseq and Differential abundance testing with DESeq2
+###------------------------------Importing filtered OTU table Phyloseq to run alpha diversity in Qiime------------------------------------------------------------------
+#!/bin/bash
+##
+#SBATCH --mem=6G
+#SBATCH -p gc
+#SBATCH -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/alpha_feces.out
+#SBATCH -e /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/alpha_feces.err
+module load qiime/1.9.1
+#After pruning and filtering in R otu table with observed data was convereted to csv format
+#Making biom file
+time biom convert -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/MERGE_pruned_filtered_HT_zero_OTU_Table.txt -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/MERGE_pruned_filtered_HT_zero.biom --table-type="OTU table" --to-hdf5
+echo "Done converting csv OTU table to biom format"
+time biom add-metadata -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/MERGE_pruned_filtered_HT_zero.biom -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/MERGE_pruned_filtered_HT_zero_meta.biom --observation-metadata-fp /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/MERGE_pruned_filtered_HT_zero_Tax_Table.txt --observation-header OTUID,taxonomy --sc-separated taxonomy
+echo "Done adding Metadata"
+#checking if it worked
+time biom convert -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/MERGE_pruned_filtered_HT_zero_meta.biom -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/test_otu_table_meta.txt --to-tsv --header-key taxonomy --tsv-metadata-formatter sc_separated
+time biom convert -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/MERGE_pruned_filtered_HT_zero.biom -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/test_otu_table.txt --to-tsv --header-key taxonomy
+
+#first check that biom file is working correctly 
+time biom summarize-table -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/MERGE_pruned_filtered_HT_zero_meta.biom -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/summary_MERGE_pruned_filtered_HT_zero_meta.txt
+echo "Done Summarize OTUs Table from R"
+#Picking Representative set of sequences to make tree
+
+#Filter sequences to retain only those found in pruned/filtered biom file 
+time filter_fasta.py -f /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/rep_set/seqs_chimeras_filtered_rep_set.fasta -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/biom_filtered_seqs.fasta -b /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/MERGE_pruned_filtered_HT_zero_meta.biom
+echo "Done Filtering Sequences"
+
+#Making Trees!
+#Making new tree with filtered sequences
+#Aligning Sequences
+time align_seqs.py -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/biom_filtered_seqs.fasta --alignment_method pynast --pairwise_alignment_method uclust -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/
+echo "Done Aligning Sequences"
+time make_phylogeny.py -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/biom_filtered_seqs_aligned.fasta -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/biom_filtered_rep_phylo.tre --tree_method fasttree --root_method tree_method_default
+echo "Done Making New Tree"
+
+#Calculating PD_Whole_Tree 
+time alpha_diversity.py -i /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/MERGE_pruned_filtered_HT_zero_meta.biom --tree_path /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/biom_filtered_rep_phylo.tre -o /share/tearlab/Maga/Jill/16s/split_library_output_CDRF_Feces/usearch61_picked_otus/R_biom/alpha_div_Rfiltered_tree.txt --metrics PD_whole_tree,observed_otus
+echo "Done Calculating Alpha Diversity New Tree"
