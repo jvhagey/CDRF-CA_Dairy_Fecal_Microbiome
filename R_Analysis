@@ -1,0 +1,791 @@
+# --------------------------Loading Files into R----------------------------------------------------------------------------------------------#
+#add in otu table, mapping file and tree from qiime.
+#import biom table
+BIOM <- import_biom("otu_table_not_control_removed_mitos_chloro.biom", parseFunction=parse_taxonomy_default)
+#import structural metadata
+MAP <- import_qiime_sample_data("MappingFiles_CDRF_Feces_edit.txt")
+#import tree file
+TREE <- read_tree("rep_set.tre")
+#merge biom table, map and tree and create one phyloseq object
+MERGE <- merge_phyloseq(BIOM, MAP,TREE)
+#changing from "Rank1, Rank2, Rank3" etc
+colnames(tax_table(MERGE)) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+sample_data(MERGE)$Farm <- gsub("_"," ",sample_data(MERGE)$Farm)
+
+#------------------------------------------------Cleaning Data----------------------------------------------------------------------------#
+#Checking for empty samples, samples with no taxa assoicated with them (should be "FALSE").
+any(sample_sums(MERGE) == 0)
+#Removing Samples that are empty
+MERGE_pruned <- prune_samples(sample_sums(MERGE) > 0, MERGE)
+#Checking if there are OTUs that aren't present in any samples (should be "FALSE")
+any(taxa_sums(MERGE) == 0)
+#Determining how many OTUs there are that aren't present in any sample
+sum(taxa_sums(MERGE) == 0)
+#removing OTUs that aren't present in any samples
+MERGE_pruned <- prune_taxa(taxa_sums(MERGE_pruned) > 0, MERGE_pruned)
+# -------------------------Checking Stats for Filtering-------------------------------------------------------------------------------#
+#How many singletons are there? How many doubletons? before and after filtering
+singletons <- sum(rowSums(MERGE_pruned@otu_table@.Data)==1) #number of singletons with controls and OTUs not present in any sample removed
+doubletons <- sum(rowSums(MERGE_pruned@otu_table@.Data)==2) #number of doubletons with controls and OTUs not present in any sample removed
+tripletons <- sum(rowSums(MERGE_pruned@otu_table@.Data)==3)
+sum(singletons,doubletons,tripletons)
+
+#----------------------------------------------More Filtering-------------------------------------------------------------------------------------#
+#filtering taxa not seen more than 3 times in 2% of samples (~ 3 samples) --> change % based on number of samples
+#example this data set had 150 samples and I wanted to remove OTUs limited to being seen in 1 sample 1 time
+#you need to filter out enough so the data doesn't have too many zeros, which won't fit negative binomial distribution well see line 167. 
+MERGE_pruned_filtered <- phyloseq::filter_taxa(MERGE_pruned, function(x) sum(x > 3) > (0.02*length(x)), TRUE)
+
+#Save copy just in case
+MERGE_pruned_filtered.original <- MERGE_pruned_filtered
+#making copies to add in variance stabilized counts later
+MERGE_pruned_filtered.HT <- MERGE_pruned_filtered
+
+# -------------------------Checking Stats for Filtering-------------------------------------------------------------------------------------#
+#How many singletons are there? How many doubletons? before and after filtering
+singletons <- sum(rowSums(MERGE_pruned_filtered@otu_table@.Data)==1) #number of singletons with controls and OTUs not present in any sample removed
+doubletons <- sum(rowSums(MERGE_pruned_filtered@otu_table@.Data)==2) #number of doubletons with controls and OTUs not present in any sample removed
+tripletons <- sum(rowSums(MERGE_pruned_filtered@otu_table@.Data)==3)
+sum(singletons,doubletons,tripletons)
+
+#------------------Using DESeq2 to Transform Counts and Determine Significance of Differential Abunance-----------------------------------#
+#converts phyloseq-format microbiome data into a DESeqDataSet
+#The ~Housingtype dictates the experimental design in this data set as Farm is nested in HousingType
+#should use the formula ~ HousingType + HousingType/Farm) however the module can't support nested designs so looking at the individually
+#Additionally, as Farm as signifcantly effecting the number of reads and HousingType did not this we are more confidenct in making conclusions based on housingtype
+dds_HT <- phyloseq_to_deseq2(MERGE_pruned_filtered, ~ HousingType)
+colData(dds_HT)
+
+#First check for sparsity
+#very sparse count datasets, with large counts for single samples per row and the rest at 0, don't fit well to the negative binomial distribution. 
+#Here, the VST or simply shifted log, log(count+k), might be a safer choice than the rlog. 
+#Test for sparsity by looking at a plot of the row sum of counts and the proportion of count which is in a single sample
+#If too many points clustered up at 1 on y-axis there is too many zeros in the data set, consider filtering more
+plotSparsity(dds_HT, normalized=FALSE)
+
+#Calculate geometric means prior to estimate size factors
+#Use if DESeq fails due to issues with calculating geometric means, due to number of zeros in dataset. 
+#Use with estimateDispersions and getVarianceStabilizedData to get stabilized data
+#Remember that filtering appropriately can avoid this. 
+gm_mean = function(x, na.rm=TRUE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+geoMeans = apply(counts(dds_HT), 1, gm_mean)
+dds_HT <- estimateSizeFactors(dds_HT, geoMeans = geoMeans)
+
+#DESeq function estimates size factors, dispersions and OTU-wise dispersion estimates.
+#It then determines the relationship between mean disperison estimates and finalizes them. The data is fitted to the model and tested.
+dds_HT <- DESeq(dds_HT, fitType="parametric", test = "Wald") #will takes 10-15 mins
+plotDispEsts(dds_HT)
+
+#This function does the same as varianceStabilizingTransformation, but returns only transformation values. 
+#Estimates steps in DESeq funtion individually, estimateSizeFactors, estimateDispersions & getVarianceStabilizedData
+vst_HT <- estimateDispersions(dds_HT) #will take several mins
+vst_HT <- getVarianceStabilizedData(dds_HT)
+head(vst_HT,3)
+dim(vst_HT) #Checking to make sure it has same dimentions as OTU table in phyloseq object
+#Adding variance stabilized values to phyloseq object. These are the transformed values to be used for graphing above
+otu_table(MERGE_pruned_filtered.HT) <- otu_table(vst_HT, taxa_are_rows = TRUE)
+
+#This function calculates a variance stabilizing transformation (VST) from the fitted dispersion-mean relation(s) 
+#and then transforms the count data (normalized by division by the size factors or normalization factors), 
+#yielding a matrix of values which are now approximately homoskedastic (having constant variance along the range of mean values). 
+#The transformation also normalizes with respect to library size. 
+vsd_HT <- varianceStabilizingTransformation(dds_HT, blind=FALSE, fitType = "Parametric")
+
+#PCoA plot based on Transformed values
+PCA <- plotPCA(vsd_HT, intgroup = c("Farm", "HousingType"), returnData=TRUE)
+percentVar <- round(100 * attr(PCA, "percentVar"))
+ggplot(PCA, aes(PC1, PC2, color=Farm, shape=HousingType)) + geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance"))
+
+#---------------------------------Looking into The Results of DESeq Output--------------------------------------------------------------------------#
+#creating a table of the results of the tests
+res_HT_FSvsDL <- results(dds_HT, contrast=c("HousingType","Freestall","Drylot"), cooksCutoff = TRUE, independentFiltering=TRUE, alpha=0.05)
+res_HT_DLvsP <- results(dds_HT, contrast=c("HousingType","Pasture", "Drylot"), cooksCutoff = TRUE, independentFiltering=TRUE, alpha=0.05)
+res_HT_FSvsP <- results(dds_HT, contrast=c("HousingType","Pasture","Freestall"), cooksCutoff = TRUE, independentFiltering=TRUE, alpha=0.05)
+
+#Making list for lapply function
+res_HT <-list(res_HT_FSvsDL,res_HT_DLvsP,res_HT_FSvsP)
+#sorting by lowest adjusted p-value
+res_HT <- lapply(res_HT, function(res_HT) res_HT[order(res_HT$padj, na.last=NA), ])
+#looping to get summary of all results
+summary <-lapply(res_HT, function(res_HT) summary(res_HT))
+
+#order by adjusted p-value and remove entries with NA
+alpha <- 0.01
+sigtab_FSvsDL <- res_HT[[1]][which(res_HT[[1]]$padj < alpha), ]
+sigtab_DLvsP <- res_HT[[2]][which(res_HT[[2]]$padj < alpha), ]
+sigtab_FSvsP <- res_HT[[3]][which(res_HT[[3]]$padj < alpha), ]
+
+#Making list for new lapply function
+sigtab <-list(sigtab_FSvsDL,sigtab_DLvsP,sigtab_FSvsP)#Making dataframe of results and add taxonomic labels for plotting
+sigtab <-lapply(sigtab, function(sigtab) cbind(as(sigtab, "data.frame"), as(tax_table(MERGE_pruned_filtered)[rownames(sigtab), ], "matrix")))
+
+#Separating out just positive increases
+posigtab <-lapply(sigtab, function(sigtab) sigtab[sigtab[, "log2FoldChange"] > 0, ])
+
+#Adding column names to positive increased taxa
+posigtab <-lapply(posigtab, function(posigtab) posigtab[, c("baseMean", "log2FoldChange", "lfcSE", "padj", "Phylum", "Class", "Family", "Genus", "Species")])
+
+#subsetting Family for results plotted
+sigtabFam <-lapply(sigtab, function(sigtab) subset(sigtab, !is.na(Family)))
+
+#Ordering by Phylum
+PhylumOR <- lapply(sigtabFam, function(sigtabFam) (tapply(sigtabFam$log2FoldChange, sigtabFam$Phylum, function(PhylumOR) max(PhylumOR))))
+PhylumOR <- lapply(PhylumOR, function(PhylumOR) sort(PhylumOR,TRUE))
+
+#Phylum signifcantly different between groups
+sigtabFam[[1]]$Phylum <- factor(as.character(sigtabFam[[1]]$Phylum), levels=names(PhylumOR[[1]]))
+sigtabFam[[2]]$Phylum <- factor(as.character(sigtabFam[[2]]$Phylum), levels=names(PhylumOR[[2]]))
+sigtabFam[[3]]$Phylum <- factor(as.character(sigtabFam[[3]]$Phylum), levels=names(PhylumOR[[3]]))
+
+#Ordering by Family
+PhylumOR <- lapply(sigtabFam, function(sigtabFam) (tapply(sigtabFam$log2FoldChange, sigtabFam$Family, function(PhylumOR) max(PhylumOR))))
+PhylumOR <- lapply(PhylumOR, function(PhylumOR) sort(PhylumOR,TRUE))
+
+#Families signifcantly different between groups
+sigtabFam[[1]]$Family <- factor(as.character(sigtabFam[[1]]$Family), levels=names(PhylumOR[[1]]))
+sigtabFam[[2]]$Family <- factor(as.character(sigtabFam[[2]]$Family), levels=names(PhylumOR[[2]]))
+sigtabFam[[3]]$Family <- factor(as.character(sigtabFam[[3]]$Family), levels=names(PhylumOR[[3]]))
+
+#Identifing OTU with lowest adjusted p.value
+topOTU <- lapply(res_HT, function(res_HT) rownames(res_HT)[which.min(res_HT$padj)])
+
+#Plot of OTU counts for OTU with lowest adjuested p.value (AKA most signficantly changed)
+plotCounts(dds_HT, gene=topOTU[[1]], intgroup=c("Farm"))
+plotCounts(dds_HT, gene=topOTU[[2]], intgroup=c("Farm"))
+plotCounts(dds_HT, gene=topOTU[[3]], intgroup=c("Farm"))
+
+#Adding taxa names to data frame and add taxonomic labels for plotting
+res_HT_FSvsDL.taxa <- cbind(as(res_HT[[1]], "data.frame"), as(tax_table(MERGE_pruned_filtered)[rownames(res_HT[[1]]), ], "matrix"))
+res_HT_DLvsP.taxa <- cbind(as(res_HT[[2]], "data.frame"), as(tax_table(MERGE_pruned_filtered)[rownames(res_HT[[2]]), ], "matrix"))
+res_HT_FSvsP.taxa <- cbind(as(res_HT[[3]], "data.frame"), as(tax_table(MERGE_pruned_filtered)[rownames(res_HT[[3]]), ], "matrix"))
+
+#Determining taxa of most significantly changed OTU
+TopOTU_DLvsP <- res_HT_DLvsP.taxa[1,10:13]
+TopOTU_FSvsP <- res_HT_FSvsP.taxa[1,10:13]
+TopOTU_FSvsDL <- res_HT_FSvsDL.taxa[1,10:13]
+
+#--------------------------------------------------Plotting Results---------------------------------------------------------------------#
+#Experiment overview two-group comparison. Each gene is represented with a dot. 
+#The red points indicate genes for which the log2 fold change was significantly higher than 1 or less than -1 
+#(treatment resulting in more than doubling or less than halving of the normalized counts).
+#Genes with an adjusted p value below a threshold (here 0.1, the default) are shown in red.
+#The point circled in blue indicates the gene with the lowest adjusted p value.
+
+#Figure 3
+Three_A<-postscript('3A.eps', width=6, height=4)
+plotMA(res_HT[[1]],xlab="Mean of Normalized Counts", ylab="Log Fold Change", ylim=c(-5,5), cex.main=1.5,cex.lab=1.25, cex=0.25,main="A")
+with(res_HT[[1]][topOTU[[1]], ], {
+  points(baseMean, log2FoldChange, col="dodgerblue", cex=2, lwd=2)
+  text(baseMean, 4.5, "Clostridiales", cex=1.5, font= 3, pos=4, col="dodgerblue")
+})
+dev.off()
+
+postscript('3C.eps', width=6, height=4)
+Three_B<-plotMA(res_HT[[2]],xlab="Mean of Normalized Counts", ylab="Log Fold Change", ylim=c(-7.5,7.5),cex.main=1.5,cex.lab=1.25, cex=0.25, main="C")
+with(res_HT[[2]][topOTU[[2]], ], {
+  points(baseMean, log2FoldChange, col="dodgerblue", cex=2, lwd=2)
+  text(baseMean, 6.5, "Coriobacteriaceae", cex=1.5, font= 3, pos=2, col="dodgerblue")
+})
+dev.off()
+
+postscript('3B.eps', width=6, height=4)
+Three_C<-plotMA(res_HT[[3]], xlab="Mean of Normalized Counts", ylab="Log Fold Change", ylim=c(-7.5,7.5), cex.main=1.5,cex.lab=1.25, cex=0.25, main="B")
+with(res_HT[[3]][topOTU[[3]], ], {
+  points(baseMean, log2FoldChange, col="dodgerblue", cex=2, lwd=2)
+  text(baseMean, 6.5, "Coriobacteriaceae", cex=1.5, font= 3, pos=2, col="dodgerblue")
+})
+dev.off()
+
+#---------------------------------------------------------Writing Excel Files for Fold Changes------------------------------------------------#
+#Supplementary table 1
+#exporting fold changes to excel file
+write.xlsx(res_HT_FSvsP.taxa, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/logchange_FSvsP.xlsx")
+write.xlsx(res_HT_DLvsP.taxa, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/logchange_DLvsP.xlsx")
+write.xlsx(res_HT_FSvsDL.taxa, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/logchange_FSvsDL.xlsx")
+
+#exporting significant fold changes to excel file
+write.xlsx(sigtabFam[[3]], "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/sigtabfam_FSvsP.xlsx")
+write.xlsx(sigtabFam[[2]], "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/sigtabfam_DLvsP.xlsx")
+write.xlsx(sigtabFam[[1]], "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/sigtabfam_FSvsDL.xlsx")
+
+#--------------------------------------------------Graphing Results----------------------------------------------------------------------------#
+#Plot of log2foldchanges
+#Assigning colors to Phylums
+cbPalette <- c("p__Bacteroidetes"= "#009E73","p__Firmicutes"="#CC79A7","p__Actinobacteria"="#56B4E9","p__Proteobacteria"="#000000",
+               "p__Spirochaetes"="#F0E442","p__Lentisphaerae"="#0072B2","p__Tenericutes"="#D55E00","p__Verrucomicrobia"="#E69F00","p__Euryarchaeota"="#999999")
+#Assigning Phylum Names
+breaks_Phylum <-c("p__Firmicutes","p__Bacteroidetes","p__Planctomycetes","p__Lentisphaerae","p__Proteobacteria","p__Verrucomicrobia","p__Elusimicrobia","p__Fibrobacteres","p__Tenericutes","p__Euryarchaeota","p__Cyanobacteria","p__Spirochaetes","p__Actinobacteria")
+labels_Phylum <-c("Firmicutes","Bacteroidetes","Planctomycetes","Lentisphaerae","Proteobacteria","Verrucomicrobia","Elusimicrobia","Fibrobacteres","Tenericutes","Euryarchaeota","Cyanobacteria","Spirochaetes","Actinobacteria")
+#Assigning Family Names  
+breaks_Family <-c("f__","f__Victivallaceae","f__[Mogibacteriaceae]","f__Erysipelotrichaceae","f__Anaeroplasmataceae","f__Porphyromonadaceae","f__S24-7","f__RF16","f__Rikenellaceae","f__Prevotellaceae","f__Coriobacteriaceae","f__Veillonellaceae","f__Spirochaetaceae","f__[Paraprevotellaceae]","f__Bacteroidaceae","f__Peptostreptococcaceae","f__Turicibacteraceae","f__Lachnospiraceae","f__Clostridiaceae","f__Ruminococcaceae",
+  "f__Alcaligenaceae","f__Campylobacteraceae","f__Desulfovibrionaceae","f__Enterobacteriaceae", "f__Neisseriaceae","f__Succinivibrionaceae",
+  "f__p-2534-18B5","f__Lactobacillaceae","f__RFP12","f__BS11","f__Bacteroidaceae","f__Methanobacteriaceae","f__Peptococcaceae","f__Bifidobacteriaceae","f__Streptococcaceae",
+  "f__[Barnesiellaceae]","f__Christensenellaceae","f__[Methanomassiliicoccaceae]")
+labels_Family <-c("Unassigned","Victivallaceae","Mogibacteriaceae","Erysipelotrichaceae","Anaeroplasmataceae","Porphyromonadaceae","S24-7","RF16","Rikenellaceae","Prevotellaceae","Coriobacteriaceae","Veillonellaceae","Spirochaetaceae","Paraprevotellaceae","Bacteroidaceae","Peptostreptococcaceae","Turicibacteraceae","Lachnospiraceae","Clostridiaceae","Ruminococcaceae",
+  "Alcaligenaceae","Campylobacteraceae","Desulfovibrionaceae","Enterobacteriaceae","Neisseriaceae","Succinivibrionaceae",
+  "p-2534-18B5","Lactobacillaceae","RFP12","BS11","Bacteroidaceae","Methanobacteriaceae","Peptococcaceae","Bifidobacteriaceae","Streptococcaceae",
+  "Barnesiellaceae","Christensenellaceae","Methanomassiliicoccaceae")
+
+#Figure 4
+postscript('4A.eps', width=6.5, height=5)
+ggplot(sigtabFam[[1]], aes(y=Family, x=log2FoldChange, color=Phylum)) +
+  geom_vline(xintercept = 0.0, color = "black", size = 0.5)+
+  geom_point(size=3)+ xlim(-4.5,4.5)+
+  labs(y="Family", x="Log2 Fold Change", title="A")+
+  theme(axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))+
+  scale_fill_manual(values=cbPalette,name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+
+  scale_color_manual(values=cbPalette,name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+ 
+  scale_y_discrete(breaks=(breaks_Family), labels=(labels_Family))
+dev.off()
+
+postscript('4C.eps', width=6.5, height=5)
+ggplot(sigtabFam[[2]], aes(y=Family, x=log2FoldChange, color=Phylum)) +
+  geom_vline(xintercept = 0.0, color = "gray", size = 0.5)+
+  geom_point(size=3)+ xlim(-7.5,7.5)+
+  labs(y="Family", x="Log2 Fold Change", title="C")+
+  theme(axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"),legend.position="bottom")+
+  scale_fill_manual(values=cbPalette,name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+
+  scale_color_manual(values=cbPalette,name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+
+  scale_y_discrete(breaks=(breaks_Family), labels=(labels_Family))
+dev.off()
+
+postscript('4B.eps', width=6.5, height=5)
+ggplot(sigtabFam[[3]], aes(y=Family, x=log2FoldChange, color=Phylum)) +
+  geom_vline(xintercept = 0.0, color = "gray", size = 0.5)+
+  geom_point(size=3)+ xlim(-7.5,7.5)+
+  labs(y="Family", x="Log2 Fold Change", title="B")+
+  theme(axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))+
+  scale_fill_manual(values=cbPalette,name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+
+  scale_color_manual(values=cbPalette,name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+
+  scale_y_discrete(breaks=(breaks_Family), labels=(labels_Family))
+dev.off()
+
+#----------------------------------------------------Subsetting Farms by Phylum--------------------------------------------------------------------#
+#Changing negative log values to 0 as negative numbers mean that in the orginally data the count was very low (close to zero)
+#Chaning to Zero allows for more intuitive interpretation of graphs.
+sample_data(MERGE_pruned_filtered.HT)$Farm <- gsub("_"," ",sample_data(MERGE_pruned_filtered.HT)$Farm)
+MERGE_pruned_filtered.HT.zero <- transform_sample_counts(MERGE_pruned_filtered.HT, function(x) {x[x < 0.0] <- 0.0;x})
+#Merge samples by Farm
+MERGE_FARM_trans.zero <- merge_samples(MERGE_pruned_filtered.HT.zero, "Farm", fun=mean)
+sample_data(MERGE_FARM_trans.zero)$Farm <- c("Farm 1", "Farm 10", "Farm 2", "Farm 3", "Farm 4", "Farm 5", "Farm 6","Farm 7","Farm 8","Farm 9")
+sample_data(MERGE_FARM_trans.zero)$HousingType <- c("Freestall", "Freestall", "Freestall", "Freestall", "Drylot", "Drylot", "Freestall","Pasture","Pasture","Pasture")
+#Merging OTUs by Phylum
+MERGE_Phylum_HT.zero <- tax_glom(MERGE_FARM_trans.zero, "Phylum")
+MERGE_Phylum.zero <- tax_glom(MERGE_pruned_filtered.HT.zero, "Phylum")
+#Transforming into relative abundance
+MERGE_rel.Farm <- transform_sample_counts(MERGE_Phylum_HT.zero, function(x) {100*x/sum(x)})
+MERGE_rel <- transform_sample_counts(MERGE_Phylum.zero, function(x) {100*x/sum(x)})
+
+#Table 1
+#writing percent relative abundance to an excel sheet
+Feces_OTU_Trans <- t(MERGE_rel.Farm@otu_table@.Data)
+write.xlsx(Feces_OTU_Trans, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/Feces_Rel_Trans_Zero3.xlsx")
+Feces_OTU_Trans_taxa <- MERGE_rel.Farm@tax_table@.Data
+write.xlsx(Feces_OTU_Trans_taxa, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/Feces_Rel_Trans_Zero_taxa3.xlsx")
+
+Feces_OTU_Trans_taxa.HT <- MERGE_rel@tax_table@.Data
+write.xlsx(Feces_OTU_Trans_taxa.HT, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/Feces_Rel_Trans_Zero_taxa_all.xlsx")
+Feces_OTU_Trans.HT <- MERGE_rel@otu_table@.Data
+write.xlsx(Feces_OTU_Trans.HT, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/Feces_Rel_Trans_Zero_all.xlsx")
+
+#editing sample data as the metadata gets remove when merging
+old <- MERGE_Phylum_HT.zero@sam_data@.Data
+write.xlsx(old, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/old_sample_data.xlsx")
+#open file in excel and enter the appropriate metadata
+new <- read.xlsx("new_sample_data.xlsx",sheetIndex = 1)
+#new <- sample_data(new)
+#rownames(new) <- c("Farm 1", "Farm 10", "Farm 2", "Farm 3", "Farm 4", "Farm 5", "Farm 6","Farm 7","Farm 8","Farm 9")
+#sample_data(MERGE_Phylum_HT.zero) <- sample_data(new)
+#sample_data(MERGE_Phylum_HT.zero)
+
+#subsetting phylums for graphing
+Phylum.1 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Planctomycetes"))
+Phylum.2 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Lentisphaerae"))
+Phylum.3 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Proteobacteria"))
+Phylum.4 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Verrucomicrobia"))
+Phylum.5 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Elusimicrobia"))
+Phylum.6 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Fibrobacteres"))
+Phylum.7 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Tenericutes"))
+Phylum.8 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Euryarchaeota"))
+Phylum.9 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Cyanobacteria"))
+Phylum.10 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Euryarchaeota"))
+Phylum.11 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Spirochaetes"))
+Phylum.12 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Actinobacteria"))
+Phylum.13 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Firmicutes"))
+Phylum.14 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Bacteroidetes"))
+
+#Merging groups of specific Phylums
+#minor contributors + Bact and Firm
+MERGE_Phylum.sub <- merge_phyloseq(Phylum.13, Phylum.14,Phylum.12, Phylum.3, Phylum.7,Phylum.11)
+#everything, but Bact and Firm
+MERGE_Phylum.sub2 <- merge_phyloseq(Phylum.1,Phylum.2,Phylum.6,Phylum.5,Phylum.8,Phylum.9,Phylum.10, Phylum.12, Phylum.4, Phylum.3, Phylum.7,Phylum.11)
+#Relative abundance of everything
+Phylum_rel <- transform_sample_counts(MERGE_Phylum_HT.zero, function(x) 100*x/sum(x))
+
+#------------------------------Graphing relative transformed abundances with different phylums-------------------------------------------#
+#Assigning names for labeller
+Both_names <- c(`p__Actinobacteria` = "Actinobacteria",`p__Proteobacteria`= "Proteobacteria",`p__Proteobacteria`= "Proteobacteria",`p__Verrucomicrobia`= "Verrucomicrobia",`p__Spirochaetes`= "Spirochaetes",`p__Cyanobacteria`= "Cyanobacteria",`p__Euryarchaeota`= "Euryarchaeota",`p__Tenericutes`= "Tenericutes",
+                `p__Bacteroidetes` = "Bacteroidetes",`p__Firmicutes` = "Firmicutes",`p__Elusimicrobia` = "Elusimicrobia",`p__Fibrobacteres` = "Fibrobacteres",`p__Lentisphaerae` = "Lentisphaerae",`p__Planctomycetes` = "Planctomycetes",
+                `Freestall` = "Freestall",`Drylot` = "Drylot",`Pasture` = "Pasture")#graphing transformed relative abundace of all phylums, but Bact and Firm 
+
+MERGE_Phylum.sub.HT <- merge_samples(MERGE_Phylum.sub, "HousingType", fun=mean)
+sample_data(MERGE_Phylum.sub.HT)$HousingType <- c("Drylot", "Freestall", "Pasture")
+
+#Figure 2
+#graphing transformed abundance of minor + bact and Firm phylums
+postscript('FIG2.eps', width=5, height=6.5)
+plot_bar(MERGE_Phylum.sub, x="Farm", y="Abundance", fill= "Phylum")+
+  geom_bar(aes(color=Phylum, fill=Phylum), stat="identity", position="stack", width=0.5)+
+  geom_abline(intercept = 0, slope = 0)+
+  theme_bw()+
+  facet_grid(Phylum ~ HousingType,labeller = as_labeller(Both_names), scales="free", space="free_x")+
+  theme(legend.position="none",axis.text.x=element_text(angle=305,face = "bold"),strip.text.y=element_text(angle=0,face = "bold"),strip.text.x=element_text(angle=0,face = "bold"), axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"),
+        panel.grid.major.x = element_blank(),panel.grid.minor.y=element_blank())+
+  labs(x="Farm", y="Transformed Abundance")+
+  scale_fill_discrete(name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+
+  scale_color_discrete(name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))
+dev.off()
+
+plot_bar(MERGE_Phylum.sub.HT, x="HousingType", y="Abundance", fill= "Phylum")+
+  geom_bar(aes(color=Phylum, fill=Phylum), stat="identity", position="stack", width=0.5)+
+  geom_abline(intercept = 0, slope = 0)+
+  theme_bw()+
+  facet_grid(Phylum ~ .,labeller = as_labeller(Both_names), scales="free", space="free_x")+
+  theme(legend.position="none",axis.text.x=element_text(angle=305,face = "bold"),strip.text.y=element_text(angle=0,face = "bold"),strip.text.x=element_text(angle=0,face = "bold"), axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"),
+        panel.grid.major.x = element_blank(),panel.grid.minor.y=element_blank())+
+  labs(x="Housing Type", y="Transformed Abundance")+
+  scale_fill_discrete(name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+
+  scale_color_discrete(name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))
+
+#-----------------------------------Determining significance of phyla differential Abundance----------------------------------------#
+#Merging OTUs by Phylum
+MERGE_Phylum_HT <- tax_glom(MERGE_pruned_filtered.HT, "Phylum")
+Phyla_Abun <- as.matrix(MERGE_Phylum_HT@otu_table@.Data)
+row.names(Phyla_Abun) <-MERGE_Phylum_HT@tax_table@.Data[,2]
+#checking normality
+apply(Phyla_Abun, 1, function(Phyla_Abun) shapiro.test(Phyla_Abun))
+#Adding meta data
+Phyla_Abun <- as.data.frame(t(Phyla_Abun))
+Meta <- as.data.frame(MERGE_pruned_filtered.HT@sam_data@.Data, col.names = c("SampleID","CowID","Sample","Farm","FarmType","HousingType","A", "B","C"))
+Phyla_Abun$Farm <- (Meta$Farm)
+Phyla_Abun$HousingType <- (Meta$HousingType)
+#Testing Significance
+kruskal.test(Phyla_Abun$p__Firmicutes ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$p__Firmicutes ~ Farm, data = Phyla_Abun)
+#kruskal.test(Phyla_Abun$p__Bacteroidetes ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$p__Bacteroidetes ~ Farm, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$p__Tenericutes ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$p__Actinobacteria ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$p__Proteobacteria ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$p__Tenericutes ~ Farm, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$p__Actinobacteria ~ Farm, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$p__Proteobacteria ~ Farm, data = Phyla_Abun)
+#kruskal.test(Phyla_Abun$p__Spirochaetes ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$p__Spirochaetes ~ Farm, data = Phyla_Abun)
+
+#-----------------------------------------------Bar Graphs Families Significantly Changed by Farm-----------------------------------------#
+#-----------------------------------------------------Bar graphs of Actinobacteria--------------------------------------------------------#
+#subsetting Actinobacteria from transformed counts with negative logs changed to zero and farms averaged
+Bifido_trans.zero <- subset_taxa(MERGE_pruned_filtered.HT.zero, Phylum=="p__Actinobacteria")
+Bifido_Farm_trans.zero <- subset_taxa(MERGE_FARM_trans.zero, Phylum=="p__Actinobacteria")
+Bifido_trans.famglom.zero <- tax_glom(Bifido_trans.zero, "Family")
+Bifido_Farm_trans.famglom.zero <- tax_glom(Bifido_Farm_trans.zero, "Family")
+
+#writing results to excel sheet
+Bifido_otutable_transZero <- t(Bifido_Farm_trans.zero@otu_table@.Data)
+Bifido_otutable_transZero_taxa <- Bifido_Farm_trans.zero@tax_table@.Data
+write.xlsx(Bifido_otutable_transZero_taxa, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/Bifido_otutable_transZero_taxa.xlsx")
+
+#calculating relative abundance
+Bifido_rel <- transform_sample_counts(Bifido_Farm_trans.famglom.zero, function(x) {100*x/sum(x)})
+
+#bar plots of actinobacteria
+plot_bar(Bifido_rel, fill = "Family", title = "Transformed Relative Abundance of Actinobacteria Families")+
+  geom_bar(aes(color=Family, fill=Family), stat="identity", position="stack")+
+  geom_abline(intercept = 0, slope = 0)+
+  labs(y="Percent Relative Abundance", x= "Farm")+
+  theme(axis.text.x=element_text(angle=315),strip.text=element_text(face = "bold"), axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))+
+  facet_grid(. ~ HousingType, labeller = as_labeller(Both_names), scales="free")+
+  scale_fill_manual(name="Family", breaks=c(breaks_Family),labels=c(labels_Family))+
+  scale_color_manual(name="Family", breaks=c(breaks_Family),labels=c(labels_Family))
+
+#Figure 5A
+grid.newpage()
+plot_bar(Bifido_Farm_trans.famglom.zero, fill = "Family")+
+  geom_bar(aes(color=Family, fill = Family),stat="identity",position="stack", width=0.9)+
+  geom_abline(intercept = 0, slope = 0)+
+  #expand_limits(y=0)+
+  labs(y="Transformed Abundance", x= "Farm")+
+  theme(axis.text.x=element_text(angle=315),strip.text=element_text(face = "bold"), axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))+
+  facet_grid(.~ HousingType, labeller = as_labeller(Both_names), scales="free_x", space="free")+
+  scale_fill_discrete(name="Family", breaks=c(breaks_Family),labels=c(labels_Family))+
+  scale_color_discrete(name="Family", breaks=c(breaks_Family),labels=c(labels_Family))
+
+#reordering for stacking plots
+plot_ordered_bar<-function (Bifido_Farm_trans.famglom.zero, x = "Farm", y = "Abundance",fill = NULL, title = NULL) {
+  require(ggplot2)
+  require(phyloseq)
+  require(plyr)
+  require(grid)
+  bb <- psmelt(Bifido_Farm_trans.famglom.zero)
+  samp_names <- aggregate(bb$Abundance, by=list(bb$Farm), FUN=sum)[,1]
+  .e <- environment()
+  bb[,fill]<- factor(bb[,fill], rev(sort(unique(bb[,fill])))) #fill to genus
+  bb<- bb[order(bb[,fill]),] # genus to fill
+  p = ggplot(bb, aes_string(x = x, y = y, fill = fill), environment = .e, ordered = FALSE)
+  p = p + geom_bar(aes(color=Family, fill = Family),stat="identity",position="stack", width=0.5)
+  p = p + labs(y="Transformed Abundance", x= "Farm", title="A")
+  p = p + geom_abline(intercept = 0, slope = 0)
+  p = p + theme_bw()
+  p = p + theme(plot.title=element_text(face="bold", hjust=0),axis.text.x=element_text(angle=300,hjust=0.08),strip.text=element_text(face = "bold"), axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold")
+                panel.grid.major.x = element_blank(),panel.grid.minor.y=element_blank())
+  p = p + facet_grid(.~ HousingType, labeller = as_labeller(Both_names), scales="free_x", space="free")
+  p = p + scale_fill_manual(name="Family", breaks=c(breaks_Family),labels=c(labels_Family), values=c("#7570b3","#1b9e77"))
+  p = p + scale_color_manual(name="Family", breaks=c(breaks_Family),labels=c(labels_Family), values=c("#7570b3","#1b9e77"))
+  if (!is.null(title)) {
+    p <- p + ggtitle(title)
+  }
+  return(p)
+}
+One_A <-plot_ordered_bar(Bifido_Farm_trans.famglom.zero, fill = "Family")
+postscript('1A.eps', width=6, height=3)
+plot_ordered_bar(Bifido_Farm_trans.famglom.zero, fill = "Family")
+dev.off()
+
+#Figure 5A
+plot_ordered_bar(Bifido_Farm_trans.famglom.zero, fill = "Family")
+postscript('5A.eps', width=6, height=3)
+plot_ordered_bar(Bifido_Farm_trans.famglom.zero, fill = "Family")
+dev.off()
+#Figure 5B
+postscript('5B.eps', width=6, height=3)
+plot_ordered_bar(Proteo_Farm_trans.famglom.zero, fill = "Family")
+dev.off()
+
+#--------------------------------------Testing Significance of Actino Family Shifts-------------------------------------------------#
+#Making data frame of actino family counts
+Bifido_Farm_trans.zero <- subset_taxa(MERGE_pruned_filtered.HT.zero, Phylum=="p__Actinobacteria")
+Bifido_Farm_trans.famglom.zero <- tax_glom(Bifido_Farm_trans.zero, "Family")
+#extracting data
+actino_df  <- as.data.frame(t(Bifido_Farm_trans.famglom.zero@otu_table@.Data))
+actino_df.taxa  <- as.data.frame(Bifido_Farm_trans.famglom.zero@tax_table@.Data)
+actino_Meta <- as.data.frame(Bifido_Farm_trans.famglom.zero@sam_data@.Data , col.names = c("Sample","CowID", "What","Farm","FarmType","HousingType","Trans_ID", "Day", "Details"))
+#renaming columns and adding meta data
+colnames(actino_df) <- c("Coriobacteriaceae", "Bifidobacteriaceae")
+actino_df$Farm <- (actino_Meta$Farm)
+actino_df$HousingType <- (actino_Meta$HousingType)
+actino_df$Ratio <- (actino_df$Bifidobacteriaceae/actino_df$Coriobacteriaceae)
+
+kruskal.test(actino_df$Coriobacteriaceae ~ HousingType, data = actino_df)
+kruskal.test(actino_df$Bifidobacteriaceae ~ HousingType, data = actino_df)
+kruskal.test(actino_df$Ratio ~ HousingType, data = actino_df)
+kruskal.test(actino_df$Ratio ~ Farm, data = actino_df)
+
+#------------------------------------------Bar graphs of Proteobacteria------------------------------------------------------------#
+#subbsetting proteobacteria and merging by family or genus
+Proteo_Farm_trans.zero <- subset_taxa(MERGE_FARM_trans.zero, Phylum=="p__Proteobacteria")
+Proteo_Farm_trans.famglom.zero <- tax_glom(Proteo_Farm_trans.zero, "Family")
+Proteo_Farm_trans.genglom <- tax_glom(Proteo_Farm_trans.zero, "Genus")
+
+#writing results to excel sheet
+Proteo_otutable_transZero <- t(Proteo_Farm_trans.famglom.zero@otu_table@.Data)
+Proteo_otutable_transZero_taxa <- Proteo_Farm_trans.famglom.zero@tax_table@.Data
+write.xlsx(Proteo_otutable_transZero, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/Proteo_otutable_transZero.xlsx")
+write.xlsx(Proteo_otutable_transZero_taxa, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/Proteo_otutable_transZero_taxa.xlsx")
+
+#calculating relative abundance
+Proteo_rel <- transform_sample_counts(Proteo_Farm_trans.famglom.zero, function(x) 100*x/sum(x))
+Proteo_rel_gen <- transform_sample_counts(Proteo_Farm_trans.genglom, function(x) 100*x/sum(x))
+
+#bar graphs of Proteobacteria
+plot_bar(Proteo_rel, fill = "Family", title = "Transformed Relative Abundance of Proteobacteria Families")+
+  geom_bar(aes(color=Family, fill=Family), stat="identity", position="stack")+
+  geom_abline(intercept = 0, slope = 0)+
+  labs(y="Percent Relative Abundance", x="Farm")+
+  theme(axis.text.x=element_text(angle=315),strip.text=element_text(face = "bold"), axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))+
+  facet_grid(. ~ HousingType, labeller = as_labeller(HousingType_names), scales="free", space= "free")+
+  scale_fill_discrete(name="Family", breaks=c(breaks_Family),labels=c(labels_Family))+
+  scale_color_discrete(name="Family", breaks=c(breaks_Family),labels=c(labels_Family))
+
+#Figure 5B
+plot_bar(Proteo_Farm_trans.famglom.zero, fill = "Family")+
+  geom_bar(aes(color=Family, fill=Family), stat="identity", position="stack", width=0.9)+
+  geom_abline(intercept = 0, slope = 0)+
+  labs(y="Transformed Abundance", x="Farm")+
+  theme(axis.text.x=element_text(angle=315),strip.text=element_text(face = "bold"), axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))+
+  facet_grid(. ~ HousingType, labeller = as_labeller(Both_names), scales="free_x", space="free")+
+  scale_fill_discrete(name="Family", breaks=c(breaks_Family),labels=c(labels_Family))+
+  scale_color_discrete(name="Family", breaks=c(breaks_Family),labels=c(labels_Family))
+
+#reordering for stacking plots
+plot_ordered_bar<-function (Proteo_Farm_trans.famglom.zero, x = "Farm", y = "Abundance",fill = NULL, title = NULL) {
+  require(ggplot2)
+  require(phyloseq)
+  require(plyr)
+  require(grid)
+  bb <- psmelt(Proteo_Farm_trans.famglom.zero)
+  samp_names <- aggregate(bb$Abundance, by=list(bb$Farm), FUN=sum)[,1]
+  .e <- environment()
+  bb[,fill]<- factor(bb[,fill], rev(sort(unique(bb[,fill])))) #fill to family
+  bb<- bb[order(bb[,fill]),] # genus to fill
+  p = ggplot(bb, aes_string(x = x, y = y, fill = fill), environment = .e, ordered = FALSE)
+  p = p + geom_bar(aes(color=Family, fill = Family),stat="identity",position="stack", width=0.5)
+  p = p + labs(y=NULL, x= "Farm",title="B")
+  p = p + theme_bw()
+  p = p + geom_abline(intercept = 0, slope = 0)
+  p = p + theme(plot.title=element_text(face="bold", hjust=0),axis.text.x=element_text(angle=315,hjust=0.08),strip.text=element_text(face = "bold"), axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"),
+                panel.grid.major.x = element_blank(),panel.grid.minor.y=element_blank())
+  p = p + facet_grid(.~ HousingType, labeller = as_labeller(Both_names), scales="free_x", space="free")
+  p = p + scale_fill_manual(name="Family", breaks=c(breaks_Family),labels=c(labels_Family), values=c("dodgerblue3","seagreen3","turquoise3","lightpink2","orchid3","darkorchid2","maroon2"),guide = guide_legend(reverse=TRUE))
+  p = p + scale_color_manual(name="Family", breaks=c(breaks_Family),labels=c(labels_Family),values=c("dodgerblue3","seagreen3","turquoise3","lightpink2","orchid3","darkorchid2","maroon2"),guide = guide_legend(reverse=TRUE))
+  if (!is.null(title)) {
+    p <- p + ggtitle(title)
+  }
+  return(p)
+}
+One_B <-plot_ordered_bar(Proteo_Farm_trans.famglom.zero, fill = "Family")
+postscript('1B.eps', width=6, height=3)
+plot_ordered_bar(Proteo_Farm_trans.famglom.zero, fill = "Family")
+dev.off()
+
+#--------------------------------------Testing Significance of Succinivibrionaceae Shifts-------------------------------------------------#
+#Making data frame of actino family counts
+Succ_Farm_trans.zero <- subset_taxa(MERGE_pruned_filtered.HT.zero, Family=="f__Succinivibrionaceae")
+Succ_Farm_trans.famglom.zero <- tax_glom(Succ_Farm_trans.zero, "Family")
+Succ_df  <- as.data.frame(t(Succ_Farm_trans.famglom.zero@otu_table@.Data))
+Succ_df.taxa  <- as.data.frame(Succ_Farm_trans.famglom.zero@tax_table@.Data)
+#renaming columns and adding meta data
+colnames(Succ_df) <- c("Succinivibrionaceae")
+Succ_df$Farm <- (Meta$Farm)
+Succ_df$HousingType <- (Meta$HousingType)
+
+kruskal.test(Succ_df$Succinivibrionaceae ~ HousingType, data = Succ_df)
+kruskal.test(Succ_df$Succinivibrionaceae ~ Farm, data = Succ_df)
+
+#------------------------------------Calculating Faith's PD (1992) and PD_whole tree from qiime-----------------------------------------#
+#making biom file to calculate alpha diversity
+#open tax_table file in note pad and replace the first row with #OTU_ID	Taxonomy, then replace first ; with a \t (tab)
+write.table(x = tax_table(MERGE_pruned_filtered.HT.zero), file = "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/MERGE_pruned_filtered_HT_zero_Tax_Table.txt", sep=";")
+#After writing open otu_table in excel and move rows over one putting #OTU_ID in the first column first row then transfer into Qiime
+write.table(x = otu_table(MERGE_pruned_filtered.HT.zero), file = "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/MERGE_pruned_filtered_HT_zero_OTU_Table.txt", sep="\t") 
+
+#importing PD_whole tree from qiime
+qiime_PD <- read.csv("C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/alpha_div_Rfiltered_tree.txt", sep = "\t", col.names = c("Sample", "PD_whole_tree", "Observed_OTUs"))
+Meta <- as.data.frame(MERGE_pruned_filtered.HT@sam_data@.Data, col.names = c("SampleID","CowID","Sample","Farm","FarmType","HousingType","A", "B","C"))
+qiime_PD$Farm <- (Meta$Farm)
+qiime_PD$HousingType <- (Meta$HousingType)
+kruskal.test(qiime_PD$PD_whole_tree ~ qiime_PD$HousingType, data = qiime_PD)
+kruskal.test(qiime_PD$PD_whole_tree ~ qiime_PD$Farm, data = qiime_PD)
+#reordering farms for boxplot
+qiime_PD$Farm <- factor(qiime_PD$Farm, levels=c("Farm 1","Farm 2", "Farm 3", "Farm 4", "Farm 5", "Farm 6", "Farm 7", "Farm 8", "Farm 9", "Farm 10"))
+
+#Figure 1A
+postscript('1A.eps', width=6, height=3)
+ggplot(data=qiime_PD, aes(y=qiime_PD$PD_whole_tree, x=qiime_PD$Farm)) + 
+  geom_boxplot(aes(fill=qiime_PD$HousingType)) + 
+  labs(x="Farm", y="Phylogenetic Diversity")+
+  theme_bw()+
+  theme(axis.text.x=element_text(angle=315,hjust=0.08),plot.title = element_text(face = "bold"),text = element_text(face="bold"), axis.title.x = element_text(face="bold") ,axis.title.y = element_text(face="bold"), axis.text.x = element_text(size=11,face = "bold", angle = 10),    
+        panel.grid.major.x = element_blank(),panel.grid.minor.y=element_blank())+
+  scale_fill_discrete(name="Housing Type")
+dev.off()
+#--------------------------------------------Beta Diversity PCoA Plots---------------------------------------------------------------#
+#It is best to transform the data first then make PCoA plots and graph relative abundance etc with differences in library size taken into account.
+#However, it can be useful to get a file for the data and it can depend on the question being asked.
+#Run a PCoA ordination and make PCoA plot using transformed data
+ord_weighted<- ordinate(MERGE_pruned_filtered.HT, method="PCoA", distance = "unifrac", weighted = TRUE)
+ord_unweighted <- ordinate(MERGE_pruned_filtered.HT, method="PCoA", distance = "unifrac", weighted = FALSE)
+
+#getting data for scatter plot
+Meta_Scatter <- data.frame(sample_data(MERGE_pruned_filtered.HT))
+Axis_unweighted <- as.data.frame(ord_unweighted$vectors[,1:4])
+Axis_unweighted$HousingType <-Meta_Scatter$HousingType
+Axis_unweighted$Farm <- Meta_Scatter$Farm
+#Assiging color to Housing Types
+Axis_unweighted$pcolor[Axis_unweighted$HousingType=="Pasture"] <- "blue"
+Axis_unweighted$pcolor[Axis_unweighted$HousingType=="Freestall"] <- "darkgreen"
+Axis_unweighted$pcolor[Axis_unweighted$HousingType=="Drylot"] <- "red"
+#Assigning color to Farms
+Axis_unweighted$pcolor[Axis_unweighted$Farm=="Farm 1"] <- "blue"
+Axis_unweighted$pcolor[Axis_unweighted$Farm=="Farm 2"] <- "darkgreen"
+Axis_unweighted$pcolor[Axis_unweighted$Farm=="Farm 3"] <- "red"
+Axis_unweighted$pcolor[Axis_unweighted$Farm=="Farm 4"] <- "pink"
+Axis_unweighted$pcolor[Axis_unweighted$Farm=="Farm 5"] <- "orange"
+Axis_unweighted$pcolor[Axis_unweighted$Farm=="Farm 6"] <- "black"
+Axis_unweighted$pcolor[Axis_unweighted$Farm=="Farm 7"] <- "grey"
+Axis_unweighted$pcolor[Axis_unweighted$Farm=="Farm 8"] <- "yellow"
+Axis_unweighted$pcolor[Axis_unweighted$Farm=="Farm 9"] <- "purple"
+Axis_unweighted$pcolor[Axis_unweighted$Farm=="Farm 10"] <- "lightblue"
+
+#Figure 1B
+#scatter plot HousingType
+grid.newpage()
+with(Axis_unweighted, {
+scatterplot3d(x=Axis_unweighted$Axis.1, y=Axis_unweighted$Axis.2, z=Axis_unweighted$Axis.3, 
+              color=pcolor, pch=19, angle=300,cex.symbols=1, 
+              xlab="Axis.1 [8.2%]",
+              ylab="Axis.2 [3.9%]",
+              zlab="Axis.3 [3.8%]")
+  legend("topright", xjust=0,x.intersp=1,      # location and inset
+         bty="n", cex=1,              # suppress legend box, shrink text 50%
+         title="HousingTypes",
+         c("Pasture", "Freestall", "Drylot"), fill=c("blue", "darkgreen", "red"))
+})
+
+#scatter plot farms
+grid.newpage()
+with(Axis_unweighted, {
+  scatterplot3d(x=Axis_unweighted$Axis.1, y=Axis_unweighted$Axis.2, z=Axis_unweighted$Axis.3, 
+                color=pcolor, pch=19, angle=20,cex.symbols=1, 
+                xlab="Axis.1 [8.2%]",
+                ylab="Axis.2 [3.9%]",
+                zlab="Axis.3 [3.8%]")
+  legend("topright", xjust=0,x.intersp=1,      # location and inset
+         bty="n", cex=1,              # suppress legend box, shrink text 50%
+         title="Farm",
+         c("Farm 1", "Farm 2", "Farm 3","Farm 4","Farm 5","Farm 6","Farm 7","Farm 8","Farm 9","Farm 10"), 
+         fill=c("blue", "darkgreen", "red", "pink","orange","black","grey","yellow","purple","lightblue"))
+})
+
+
+#Figure 1A
+ggplot(data=qiime_PD, aes(y=qiime_PD$PD_whole_tree, x=qiime_PD$Farm)) + 
+  geom_boxplot(aes(fill=qiime_PD$HousingType)) + 
+  labs(title="A",x="Farm", y="Phylogenetic Diversity")+
+  theme(plot.title = element_text(hjust = 0,face = "bold"),axis.text.x=element_text(angle=315,hjust=0.08),text = element_text(face="bold"), axis.title.x = element_text(face="bold") ,axis.title.y = element_text(face="bold"), axis.text.x = element_text(size=11,face = "bold", angle = 10))+
+  scale_fill_discrete(name="Housing Type")
+
+#Figure 1B
+postscript('1BFarms.eps', width=5, height=3)
+plot_ordination(MERGE_pruned_filtered.HT, ord_unweighted,shape = "HousingType", color="Farm")+
+  labs(title="B")+
+  geom_abline(intercept = 0, slope = 0) + 
+  geom_point(size = 3, alpha = 0.75) +
+  stat_ellipse()+
+  theme(plot.title = element_text(hjust = 0,face = "bold"),axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))
+dev.off()
+
+postscript('1B.eps', width=5, height=3)
+plot_ordination(MERGE_pruned_filtered.HT, ord_unweighted,color = "HousingType")+
+  labs(title="B")+
+  geom_abline(intercept = 0, slope = 0) + 
+  geom_point(size = 3, alpha = 0.75) +
+  stat_ellipse()+
+  theme(plot.title = element_text(hjust = 0,face = "bold"),axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))
+dev.off()
+
+#Figure S1
+postscript('S1.eps', width=6, height=4)
+plot_ordination(MERGE_pruned_filtered.HT, ord_unweighted, color = "Farm", shape="HousingType")+ 
+  geom_abline(intercept = 0, slope = 0) + 
+  geom_point(size = 3, alpha = 0.75) +
+  stat_ellipse()+
+  scale_color_discrete(breaks=c("Farm 1","Farm 2","Farm 3","Farm 4","Farm 5","Farm 6","Farm 7","Farm 8","Farm 9","Farm 10"),labels=c("Farm 1","Farm 2","Farm 3","Farm 4","Farm 5","Farm 6","Farm 7","Farm 8","Farm 9","Farm 10"))+
+  theme(plot.title = element_text(hjust = 0,face = "bold"),axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))
+dev.off()
+
+# -------------------------------------Core Microbiome-------------------------------------------------------------------------------#
+tax_table(Core_rare) # 1 taxa and 126 samples
+Core <- filter_taxa(MERGE_pruned_filtered, function(x) sum(x >= 1) >= (0.99*length(x)), TRUE)
+tax_table(Core)
+
+#looking for core in Pasture Animals
+HT.P <- subset_samples(MERGE_pruned_filtered, HousingType == c("Pasture"))
+Core.P <- filter_taxa(HT.P, function(x) sum(x >= 1) > (0.99*length(x)), TRUE)
+tax_table(Core.P) #37 samples and 6 taxa for Deep_MERGE_pruned
+#looking for core in Freestall Raised Cows
+HT.FS<- subset_samples(MERGE_pruned_filtered, HousingType == c("Freestall"))
+Core.FS <- filter_taxa(HT.FS, function(x) sum(x >= 1) > (0.99*length(x)), TRUE)
+tax_table(Core.FS) #49 samples 2 taxa for Deep_MERGE_pruned
+#looking for core in Drylot Raised Cows
+HT.DL <- subset_samples(MERGE_pruned_filtered, HousingType == c("Drylot"))
+Core.DL <- filter_taxa(HT.DL, function(x) sum(x >= 1) > (0.99*length(x)), TRUE)
+tax_table(Core.DL) #40 samples 5 taxa for Deep_MERGE_pruned
+#looking for core in Drylot and Freestall Raised Cows
+HT.DL.FS <- merge_phyloseq(HT.DL, HT.FS)
+Core.DL.FS <- filter_taxa(HT.DL.FS, function(x) sum(x >= 1) > (0.99*length(x)), TRUE)
+tax_table(Core.DL.FS) #105 samples 2 taxa for Deep_MERGE_pruned
+#looking for core in Pasture and Freestall Raised Cows
+HT.P.FS <- merge_phyloseq(HT.P, HT.FS)
+Core.P.FS <- filter_taxa(HT.P.FS, function(x) sum(x >= 1) > (0.99*length(x)), TRUE)
+tax_table(Core.P.FS) #86 samples 3 taxa for Deep_MERGE_pruned 
+#looking for core in Drylot and Pasture Raised Cows
+HT.DL.P <- merge_phyloseq(HT.DL, HT.P)
+Core.DL.P <- filter_taxa(HT.DL.P, function(x) sum(x >= 1) > (0.99*length(x)), TRUE)
+tax_table(Core.DL.P) #77 samples 1 taxa for Deep_MERGE_pruned
+
+#determing Families and Genera in common
+#Merging taxa by family or genus
+MERGE_Pruned_fam <- tax_glom(MERGE_pruned_filtered, "Family")
+MERGE_Pruned_Gen <- tax_glom(MERGE_pruned_filtered, "Genus")
+#Determing families and genera found in all samples
+Core_Fam <- filter_taxa(MERGE_Pruned_fam, function(x) sum(x >= 1) >= (1.00*length(x)), TRUE)
+tax_table(Core_Fam)
+write.xlsx(tax_table(Core_Fam), "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/Core_Fam.xlsx")
+Core_Gen <- filter_taxa(MERGE_Pruned_Gen, function(x) sum(x >= 1) >= (1.00*length(x)), TRUE)
+tax_table(Core_Gen)
+write.xlsx(tax_table(Core_Gen), "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/Core_Gen.xlsx")
+
+#looking for core in Pasture Animals
+HT.P.Gen <- subset_samples(MERGE_Pruned_Gen, HousingType == c("Pasture"))
+Core.P.Gen <- filter_taxa(HT.P.Gen, function(x) sum(x >= 1) > (0.999*length(x)), TRUE)
+Core.DF.P<-as.data.frame(tax_table(Core.P.Gen)) #30 taxa
+Core.DF.P$Core_HT <- rep("Pasture Core",30)
+#looking for core in Freestall Raised Cows
+HT.FS.Gen<- subset_samples(MERGE_Pruned_Gen, HousingType == c("Freestall"))
+Core.FS.Gen <- filter_taxa(HT.FS.Gen, function(x) sum(x >= 1) > (0.999*length(x)), TRUE)
+Core.DF.FS<-as.data.frame(tax_table(Core.FS.Gen)) #36 taxa
+Core.DF.FS$Core_HT <- rep("Freestall Core",36)
+#looking for core in Drylot Raised Cows
+HT.DL.Gen <- subset_samples(MERGE_Pruned_Gen, HousingType == c("Drylot"))
+Core.DL.Gen <- filter_taxa(HT.DL.Gen, function(x) sum(x >= 1) > (0.999*length(x)), TRUE)
+Core.DF.DL<-as.data.frame(tax_table(Core.DL.Gen)) #36 taxa
+Core.DF.DL$Core_HT <- rep("Drylot Core",36)
+#looking for core in Drylot and Freestall Raised Cows
+HT.DL.FS.Gen <- merge_phyloseq(HT.DL.Gen, HT.FS.Gen)
+Core.DL.FS.Gen <- filter_taxa(HT.DL.FS.Gen, function(x) sum(x >= 1) > (0.999*length(x)), TRUE)
+tax_table(Core.DL.FS.Gen) #33 taxa
+#looking for core in Pasture and Freestall Raised Cows
+HT.P.FS.Gen <- merge_phyloseq(HT.P.Gen, HT.FS.Gen)
+Core.P.FS.Gen <- filter_taxa(HT.P.FS.Gen, function(x) sum(x >= 1) > (0.999*length(x)), TRUE)
+tax_table(Core.P.FS.Gen) #32 taxa
+#looking for core in Drylot and Pasture Raised Cows
+HT.DL.P.Gen <- merge_phyloseq(HT.DL.Gen, HT.P.Gen)
+Core.DL.P.Gen <- filter_taxa(HT.DL.P.Gen, function(x) sum(x >= 1) > (0.999*length(x)), TRUE)
+tax_table(Core.DL.P.Gen) #28 taxa
+
+#looking for unique taxa in each housing type core
+Core.DF <- rbind(Core.DF.FS,Core.DF.DL,Core.DF.P)
+dupRows <- dupsBetweenGroups(Core.DF, "Core_HT")
+Unique_taxa <- cbind(Core.DF, unique=!dupRows)
+#making dataframe with 
+Only_Unique_taxa <- Unique_taxa[ grep("FALSE", Unique_taxa$unique, invert = TRUE) , ]
+
+
+#-------------------------Extracting Data for Tables-----------------------------------------------------#
+#Making Kingdom OTU table
+Kingdom <-tax_glom(MERGE_pruned, "Kingdom")
+table2 <- as.data.frame(otu_table(Kingdom),row.names = c("Archaea","Unassigned","Bacteria"))
+table2 <- rbind(sample_sums(MERGE_pruned), table2)
+row.names(table2) <- c("Total Reads After Filtering","Reads Assigned to Archaea","Unassigned Reads", "Reads Assinged to Bacteria")
+#getting range of reads
+max(table2[1,])
+min(table2[1,])
+rowMedians(list(table2[1,]))
+#getting number of OTUs assinged to each kingdom
+kingdom_Bact_OTUs <- subset_taxa(MERGE_pruned, Kingdom == c("k__Bacteria"))
+kingdom_OTUs <- as.data.frame(colSums(kingdom_Bact_OTUs@otu_table@.Data != 0))
+kingdom_OTUs <- t(kingdom_OTUs)
+kingdom_Arch_OTUs <- subset_taxa(MERGE_pruned, Kingdom == c("k__Archaea"))
+kingdom_OTUs <- as.data.frame(rbind(colSums(kingdom_Arch_OTUs@otu_table@.Data != 0),kingdom_OTUs))
+kingdom_UnAss_OTUs <- subset_taxa(MERGE_pruned, Kingdom == c("Unassigned"))
+kingdom_OTUs <- as.data.frame(rbind(colSums(kingdom_UnAss_OTUs@otu_table@.Data != 0),kingdom_OTUs))
+kingdom_OTUs <- as.data.frame(rbind(colSums(kingdom_OTUs),kingdom_OTUs))
+row.names(kingdom_OTUs) <- c("Total OTUs","Unassigned OTUs","OTUs Assigned to Archaea","OTUs Assigned to Bacteria")
+#combing reads and OTU counts into same data frame
+table2 <- rbind(table2,kingdom_OTUs)
+write.xlsx(table2, "C:/Users/Jill/OneDrive/Documents/collaboration/Depeters/Trimmed/OTUs Counts.xlsx", sheetName="Kingdom", append=TRUE)
