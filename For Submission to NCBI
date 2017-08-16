@@ -1,0 +1,65 @@
+#This script was to make raw data from CDRF Dairy Fecal Microbiome ready for submission to NCBI
+
+#Step 1 make project file
+#---------------------------------------------------Project File----------------------------------------------------------------#
+#contents of project.file
+Username jvhagey
+Last Hagey
+First Jill
+Email jvhagey@ucdavis.edu
+Center University of California, Davis
+Type Institute
+Ownership owner
+ProjectName Commercial Dairy Cow Fecal Microbiome
+ProjectTitle Housing Type Affects the Fecal Microbiome of Commercial California Dairy Cattle
+Description Here we describe the fecal microbiome in commercial dairy cattle in California. Sequencing 16S rRNA gene in fecal samples collected daily cattle in California, we characterized the community membership and structure to determine whether there were significant changes in the feceal community due to differences in housingtype.
+Grant id=P-15-004-UCD-DM-SUST, agency=California Dairy Research Foundation (CDRF), title=Analysis of microbial biodiversity of commercial dairy cattle milk and feces
+
+#Step 2 make mimarkpackage 
+#---------------------------------------------------Mimarkfile File----------------------------------------------------------------#
+#!/bin/bash
+##
+#SBATCH --mem=6G
+#SBATCH --time=1-18:0:0
+#SBATCH -o /share/tearlab/Maga/Jill/16s/Demultiplex_Before_QC/Mothur/Mothur_SRA.out
+#SBATCH -e /share/tearlab/Maga/Jill/16s/Demultiplex_Before_QC/Mothur/Mothur_SRA.err
+module load mothur/1.36.1
+mothur /share/tearlab/Maga/Jill/16s/Demultiplex_Before_QC/Mothur/Make_SRA.bat
+#bat file
+get.mimarkspackage(file=Demulti_Fastq.file, package=host_associated)
+
+#Demulti_Fastq.file contains in part (comes from Demultiplexing): 
+161	Raw_Files.161.V5_AGTCTCTCGT.GTGCCAGCMGCCGCGGTAA.forward.fastq	Raw_Files.161.V5_AGTCTCTCGT.GTGCCAGCMGCCGCGGTAA.reverse.fastq
+162	Raw_Files.162.V5_AGTCTGACGT.GTGCCAGCMGCCGCGGTAA.forward.fastq	Raw_Files.162.V5_AGTCTGACGT.GTGCCAGCMGCCGCGGTAA.reverse.fastq
+163	Raw_Files.163.V5_AGTGACAGGT.GTGCCAGCMGCCGCGGTAA.forward.fastq	Raw_Files.163.V5_AGTGACAGGT.GTGCCAGCMGCCGCGGTAA.reverse.fastq
+#etc for all samples
+
+#Step 3 add additional information into mimark file. 
+#---------------------------------------------------mimark File------------------------------------------------------------------------#
+#note that only water samples that had sequences were uploaded. Only one water sample ended up containing 
+#This information is all found in the uploaded files now (Accession #)
+
+#Step 4 make SRA file for submission
+#-----------------------------------------------------------SRA File-------------------------------------------------------------------#
+#!/bin/bash
+##
+#SBATCH --mem=6G
+#SBATCH --time=1-18:0:0
+#SBATCH -o /share/tearlab/Maga/Jill/16s/Demultiplex_Before_QC/Mothur/Mothur_SRA.out
+#SBATCH -e /share/tearlab/Maga/Jill/16s/Demultiplex_Before_QC/Mothur/Mothur_SRA.err
+module load mothur/1.36.1
+mothur /share/tearlab/Maga/Jill/16s/Demultiplex_Before_QC/Mothur/Make_SRA.bat
+#bat file
+make.sra(file=Demulti_Fastq.file, project=project.file, mimark=Demulti_Fastq_new.txt, platform=ILLUMINA, instrument=Illumina_MiSeq)
+
+#Step 5 submit data from server to NCBI SRA
+#---------------------------------------------------Submitting Files to SRA------------------------------------------------------------#
+module load aspera-connect/3.5.1
+#Write sra@ncbi.nlm.nih.gov to get the key file for upload
+# -d is a directory that contains fastq raw files and submission.xml files
+ascp -i /share/tearlab/Maga/Jill/16s/Demultiplex_Before_QC/Mothur/<key> -QT -l100m -k1 -d /share/tearlab/Maga/Jill/16s/Demultiplex_Before_QC/Mothur/For_SRA_Upload/ asp-mothur@upload.ncbi.nlm.nih.gov:submit/Production/jvhagey
+
+#Do this last submit.ready is a blank file but it signals ncbi that submission of fastq files are complete
+ascp -i /share/tearlab/Maga/Jill/16s/Demultiplex_Before_QC/Mothur/mothur1.private.openssh -QT -l100m -k1 -d /share/tearlab/Maga/Jill/16s/Demultiplex_Before_QC/Mothur/submit.ready asp-mothur@upload.ncbi.nlm.nih.gov:submit/Production/jvhagey
+
+#Sequences are avaliable at SRA accession number
