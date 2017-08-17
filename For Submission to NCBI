@@ -62,4 +62,4 @@ ascp -i /share/tearlab/Maga/Jill/16s/Demultiplex_Before_QC/Mothur/<key> -QT -l10
 #Do this last submit.ready is a blank file but it signals ncbi that submission of fastq files are complete
 ascp -i /share/tearlab/Maga/Jill/16s/Demultiplex_Before_QC/Mothur/mothur1.private.openssh -QT -l100m -k1 -d /share/tearlab/Maga/Jill/16s/Demultiplex_Before_QC/Mothur/submit.ready asp-mothur@upload.ncbi.nlm.nih.gov:submit/Production/jvhagey
 
-#Sequences are avaliable at SRA accession number
+#Sequences are avaliable at SRA accession study number SRP115649.
