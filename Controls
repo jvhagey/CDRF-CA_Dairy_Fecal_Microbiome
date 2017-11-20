@@ -1,0 +1,17 @@
+#----------Checking OTU table with reads only found in control samples to see if they need to be removed----------------#
+#subset out each of the control samples and remove taxa that aren't found in it
+con_1 <- subset_samples(MERGE_pruned_filtered_wCon, SampleID == c("320"))
+con_1 <- prune_taxa(taxa_sums(con_1) > 0, con_1)
+con_2 <- subset_samples(MERGE_pruned_filtered_wCon, SampleID == c("304"))
+con_2 <- prune_taxa(taxa_sums(con_2) > 0, con_2)
+con_3 <- subset_samples(MERGE_pruned_filtered_wCon, SampleID == c("256"))
+con_3 <- prune_taxa(taxa_sums(con_3) > 0, con_3)
+#create one phyloseq object with controls
+MERGE_controls_filtered <- merge_phyloseq(con_1,con_2,con_3)
+sample_sums(MERGE_controls_filtered)
+#Get Tax names from control phyloseq object to use as a filter
+con_tax_names <- rownames(as.data.frame(tax_table(MERGE_controls_filtered)))
+#prune MERGE_pruned_filtered object to leave only tax found in controls and write to a excel file
+MERGE_pruned_filtered_by_controls <- prune_taxa(con_tax_names,MERGE_pruned_filtered)
+write.table(as.data.frame(otu_table(MERGE_pruned_filtered_by_controls), 
+file = "C:/Users/Jill/Desktop/MERGE_pruned_filtered_by_controls.txt", sep="\t"))
