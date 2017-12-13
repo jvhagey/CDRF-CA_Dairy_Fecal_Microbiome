@@ -1,0 +1,178 @@
+loading libraries
+library(phyloseq); packageVersion("phyloseq")
+library(Maaslin); packageVersion("Maaslin")
+library(RColorBrewer); packageVersion("RColorBrewer")
+library(pheatmap); packageVersion("pheatmap")
+library(outliers); packageVersion("outliers")
+library(ggplot2); packageVersion("ggplot2")
+library(reshape2); packageVersion("reshape2")
+
+#-------------------------------------Prepping Data for MaAsLin Analysis-----------------------------------------------------------# 
+#Subsetting farms with complete metadata
+sample_data(MERGE_pruned_filtered)$Farm <- gsub("_"," ",sample_data(MERGE_pruned_filtered)$Farm)
+Farm_10 <- subset_samples(MERGE_pruned_filtered, Farm == "Farm 10")
+Farm_9 <- subset_samples(MERGE_pruned_filtered, Farm == "Farm 9")
+Farm_8 <- subset_samples(MERGE_pruned_filtered, Farm == "Farm 8")
+Farm_7 <- subset_samples(MERGE_pruned_filtered, Farm == "Farm 7")
+Farm_3 <- subset_samples(MERGE_pruned_filtered, Farm == "Farm 3")
+Farm_2 <- subset_samples(MERGE_pruned_filtered, Farm == "Farm 2")
+#Merging phyloseq objects to make one with combined farms
+MERGE_pruned_filtered.sm <- merge_phyloseq(Farm_10, Farm_9, Farm_8, Farm_7,Farm_3,Farm_2)
+#removing samples that did not have meta data collected
+MERGE_pruned_filtered.sm <- subset_samples(MERGE_pruned_filtered.sm, DIM != "Not Collected")
+MERGE_pruned_filtered.sm <- subset_samples(MERGE_pruned_filtered.sm, Age != "Not Collected")
+
+#Transforming counts to relative abundance (you have to run MaAsLin with relative abundance)
+MERGE_pruned_filtered.rel <- transform_sample_counts(MERGE_pruned_filtered.sm, function(x) {x/sum(x)})
+MERGE_pruned_filtered.ABrel <- transform_sample_counts(MERGE_pruned_filtered.rel, function(x) asin(sqrt(x))) #same transformation as MaAsLin
+
+#-------------------------------------Subsetting farms with complete metadata-----------------------------------------------------------# 
+#Running MaAsLin on file with reduce farms that contain full metadata
+#Making tsv file of meta data to run MaAsLin
+Meta <- t(as.data.frame(MERGE_pruned_filtered.rel@sam_data@.Data, col.names = c("SampleID","CowID","Farm","HousingType","Forage","Silage","Grains","Concentrates","Minerals","Parity","DIM","Age")))
+colnames(Meta) <- Meta[1, ]
+otutab.rel <- as.data.frame(MERGE_pruned_filtered.rel@otu_table@.Data)
+maaslin_info_rel_sm.tsv <- data.frame(t(data.frame(t(Meta), t(otutab.rel))))
+#After writing open and remove quotes "V1...V2..." as top row
+write.table(maaslin_info_rel_sm.tsv, "C:/YourLocation/maaslin_info_rel_sm.txt", sep="\t")
+
+#reading in file containing metadata for MaAsLin and transposing, Again you will need to remove quotes and 
+MaAsLin_sm.pcl <- t(read.delim("C:/YourLocation/maaslin_info_rel_sm.txt", sep="\t"))
+write.table(MaAsLin_sm.pcl, "C:/YourLocation/maaslin_info_rel_sm_t.txt", sep="\t")
+#takes about 90mins with this data
+  Maaslin("C:/YourLocation/maaslin_info_rel_sm_t.txt", strOutputDIR="C:/YourLocation/MaAsLin/MaAsLin_Sm/", strInputConfig = "C:/YourLocation/MaAsLin/sm_read.config")
+write.table(output_sm, "C:/YourLocation/MaAsLin_Sm/output_sm.txt", sep="\t")
+#*****-----------------------------------------Contents of sm_read.config file----------------------------------------------------------#
+Matrix: Metadata
+Read_PCL_Rows: HousingType-Age
+
+Matrix: Abundance
+Read_PCL_Rows: denovo95-denovo32848
+#-------------------------------------Adding taxa information to MaAsLin output----------------------------------------------------------#
+#Import output from MaAsLin 
+output_sm <- read.delim("C:/YourLocation/MaAsLin_Sm/output_sm.txt", sep="\t")
+
+#Keep only rows with variable Farm that have less than 0.05 for Q.value
+output_sm_sig <- output_sm[!output_sm$Q.value > 0.05,] #Change this value to 0.01 and rerun for heatmap, 0.05 for boxplot
+#cleaning up names in dataframe
+output_sm_sig$Value <- gsub("FarmFarm","Farm",output_sm_sig$Value)
+
+#For Supplemental file of all significantly associated OTUs
+#Making phyloseq object to get taxa names to add to dataframe using denovo present in output_sm_sig
+phyloseq_MaAsLin_sig <- prune_taxa(c(as.character(output_sm_sig$Feature)),MERGE_pruned_filtered.rel)
+phyloseq_MaAsLin_taxa_sig <-as.data.frame(tax_table(phyloseq_MaAsLin_sig))
+#Adding column to merge data frames
+phyloseq_MaAsLin_taxa_sig$Feature <- row.names(phyloseq_MaAsLin_taxa_sig)
+#merging table with taxa information with data frame of MaAsLin output
+output_sm_sig_tax <- merge(x=output_sm_sig, y=phyloseq_MaAsLin_taxa_sig, by.x=c("Feature"), by.y=c("Feature"), all=TRUE)
+#cleaning up names in dataframe
+output_sm_sig_tax <- as.data.frame(apply(output_sm_sig_tax ,2 , function(x) gsub("[a-z]__","",x)))
+#writing Supplemental Table 5
+write.table(output_sm_sig_tax, "C:/YourLocation/MaAsLin_Sm2_editmeta/output_sm_sig_tax.txt", sep="\t")
+
+#-------------------------------------Subsettting results from particular varibles------------------------------------------------------#
+#Keep only rows with different variables
+output_sm_sig_Farm <- output_sm_sig_tax[grep("Farm", output_sm_sig_tax$Variable), ]
+output_sm_sig_Age <- output_sm_sig_tax[grep("Age", output_sm_sig_tax$Variable), ]
+output_sm_sig_DIM <- output_sm_sig_tax[grep("DIM", output_sm_sig_tax$Variable), ]
+output_sm_sig_Grains <- output_sm_sig_tax[grep("Grains", output_sm_sig_tax$Variable), ]
+output_sm_sig_HousingType <- output_sm_sig_tax[grep("HousingType", output_sm_sig_tax$Variable), ]
+output_sm_sig_Parity <- output_sm_sig_tax[grep("Parity", output_sm_sig_tax$Variable), ]
+
+#-------------------------------------Graphing Results from MaAsLin---------------------------------------------------------------------#
+#Call in data that was cleaned from MaAsLin and melt into data frame
+MaAsLin_cleaned <- as.data.frame(read.delim("C:/YourLocation/MaAsLin_Sm/QC/read_cleaned.tsv", sep="\t"))
+MaAsLin_cleaned_melt <- melt(MaAsLin_cleaned, id.vars = c("Sample","HousingType","Farm","Forage","Silage","Grains","Concentrates","Minerals","Parity","DIM","Age"),
+                             variable.name = "OTU", value.name = "Abundance")
+#Making phyloseq object with the denovos present in MaAsLin_cleaned_melt to add taxa information in MaAsLin output
+phyloseq_MaAsLin_sig_HT <- prune_taxa(c(as.character(MaAsLin_cleaned_melt$OTU)),MERGE_pruned_filtered.rel)
+phyloseq_MaAsLin_sig_HT_taxa <- as.data.frame(tax_table(phyloseq_MaAsLin_sig_HT))
+#Adding column to be able to merge data frames
+phyloseq_MaAsLin_sig_HT_taxa$OTU <- row.names(phyloseq_MaAsLin_sig_HT_taxa)
+#Add taxa to data frame containing output from MaAsLin
+MaAsLin_cleaned_melt <- merge(x=MaAsLin_cleaned_melt,y= phyloseq_MaAsLin_sig_HT_taxa, by.x=("OTU"), by.y=("OTU"), all=TRUE )
+
+#Making column called "name" that has the OTU name the at the lowest taxonomy
+MaAsLin_cleaned_melt$Name <- paste(MaAsLin_cleaned_melt$Genus, sep=" ")
+MaAsLin_cleaned_melt$Name <- ifelse(grepl('g__(?=[A-Za-z,1-9])', MaAsLin_cleaned_melt$Name, ignore.case = T, perl=T), paste(MaAsLin_cleaned_melt$Genus), paste(MaAsLin_cleaned_melt$Family))
+MaAsLin_cleaned_melt$Name <- ifelse(grepl('g__(?=[A-Za-z,1-9])', MaAsLin_cleaned_melt$Name, ignore.case = T, perl=T), paste(MaAsLin_cleaned_melt$Genus), 
+                  ifelse(grepl('f__(?=[A-Za-z,1-9])', MaAsLin_cleaned_melt$Name, ignore.case = T, perl=T), paste(MaAsLin_cleaned_melt$Family), paste(MaAsLin_cleaned_melt$Order)))
+MaAsLin_cleaned_melt$Name <- ifelse(grepl('g__(?=[A-Za-z,1-9])', MaAsLin_cleaned_melt$Name, ignore.case = T, perl=T), paste(MaAsLin_cleaned_melt$Genus), 
+                  ifelse(grepl('f__(?=[A-Za-z,1-9])', MaAsLin_cleaned_melt$Name, ignore.case = T, perl=T), paste(MaAsLin_cleaned_melt$Family),
+                  ifelse(grepl('o__(?=[A-Za-z,1-9])', MaAsLin_cleaned_melt$Name, ignore.case = T, perl=T), paste(MaAsLin_cleaned_melt$Order), paste(MaAsLin_cleaned_melt$Class))))
+MaAsLin_cleaned_melt$Name <- ifelse(grepl('g__(?=[A-Za-z,1-9])', MaAsLin_cleaned_melt$Name, ignore.case = T, perl=T), paste(MaAsLin_cleaned_melt$Genus), 
+                  ifelse(grepl('f__(?=[A-Za-z,1-9])', MaAsLin_cleaned_melt$Name, ignore.case = T, perl=T), paste(MaAsLin_cleaned_melt$Family),
+                  ifelse(grepl('o__(?=[A-Za-z,1-9])', MaAsLin_cleaned_melt$Name, ignore.case = T, perl=T), paste(MaAsLin_cleaned_melt$Order), 
+                  ifelse(grepl('c__(?=[A-Za-z,1-9])', MaAsLin_cleaned_melt$Name, ignore.case = T, perl=T), paste(MaAsLin_cleaned_melt$Class), paste(MaAsLin_cleaned_melt$Phylum)))))
+#cleaning up names in dataframe
+MaAsLin_cleaned_melt$Name <- gsub("[a-z]__","",MaAsLin_cleaned_melt$Name)
+MaAsLin_cleaned_melt$Name <- gsub("NA","Unassigned",MaAsLin_cleaned_melt$Name)
+
+##retain only rows that have otus from output_sm_sig_HousingType
+#get denovos we want to keep
+HT_sig_taxa <- c(as.character(output_sm_sig_HousingType$Feature))
+#adding $ to end of every string so grep only finds exact matches when filtering. 
+HT_sig_taxa <- paste(HT_sig_taxa, "$", sep="")
+#filtering to keep only rows that are the denovo in HT_sig_taxa
+MaAsLin_cleaned_melt_sig <- dplyr::filter(MaAsLin_cleaned_melt, grepl(paste(HT_sig_taxa, collapse="|"), OTU))
+
+#boxplots of all OTUs signficantly associated with pasture housing type  
+ggplot(data=MaAsLin_cleaned_melt_sig, aes(y=MaAsLin_cleaned_melt_sig$Abundance, x=MaAsLin_cleaned_melt_sig$Name)) + 
+  geom_boxplot(aes(fill=MaAsLin_cleaned_melt_sig$HousingType), width = 0.6 ,notch = TRUE, outlier.shape = NA, 
+        position = position_dodge(width = 0.8), size=.5) + 
+  labs(x="Microbe", y="Microbial Abundance (arcsin(sqrt))")+
+  theme_bw()+
+  scale_y_sqrt(breaks=c(0,0.05,0.08,0.10,0.15))+
+  #scale_y_continuous(limits=c(0, 0.08))+
+  theme(axis.text.x=element_text(angle=295,hjust=0.08,size=11,face = "bold"), 
+        text = element_text(face="bold"), axis.title.x = element_text(face="bold"),
+        axis.title.y = element_text(face="bold"),legend.position = "bottom",
+        panel.border = element_blank(), panel.grid.major.x = element_blank(),
+        axis.line = element_line(size=0.5, colour = "black"),panel.grid.minor.y=element_blank())+
+  scale_fill_manual(name="Housing Type", breaks=c("Pasture", "Freestall"), values=c("#00BA38","#619CFF"))
+
+
+#-------------------------Graphing Results Significant Associations with Farm from MaAsLin ---------------------------------------------#
+#Retain only rows that have otus from output_sm_sig_Farm, get denovos we want to keep
+F_sig_taxa <- c(as.character(output_sm_sig_Farm$Feature))
+#Adding $ to end of every string so grep only finds exact matches when filtering. 
+F_sig_taxa <- paste(F_sig_taxa, "$", sep="")
+#Filtering to keep only rows that are the denovo in F_sig_taxa
+MaAsLin_cleaned_melt_sig_F <- dplyr::filter(MaAsLin_cleaned_melt, grepl(paste(F_sig_taxa, collapse="|"), OTU))
+#Reducing Data frame size to get means of abundanc by farm them cast it out to long format so it can be graphed with pheatmap
+MaAsLin_cleaned_melt_sig_F_df <- MaAsLin_cleaned_melt_sig_F[,c(1,4,13)]
+grouped_Farm <- dplyr::group_by(MaAsLin_cleaned_melt_sig_F, Farm, Name)
+MaAsLin_cleaned_sig_F_heat <- as.data.frame(dplyr::summarise(grouped_Farm, mean=mean(Abundance)))
+colnames(MaAsLin_cleaned_sig_F_heat) <- c("Farm", "Name", "Abundance")
+Mat_heat <- dcast(MaAsLin_cleaned_sig_F_heat, Name ~ Farm , value.var = "Abundance")
+#Changing Name column to the row name and removing the column so pheatmap can be made
+row.names(Mat_heat) <- Mat_heat$Name
+Mat_heat$Name <- NULL
+
+#**Made heatmap first and saw that several OTUs are of much higher abundance than others such that you can see differences so these were separtated out
+#Making matrix of higher abundance OTUs
+Tax_keep <- c("Peptostreptococcaceae","Clostridiaceae","Succinivibrionaceae","rc4-4", "Turicibacter", "Butyrivibrio", "CF231")
+Mat_heat_less <- as.matrix(Mat_heat[Tax_keep,])
+Mat_heat_less <- Mat_heat_less[,c("Farm 9","Farm 8","Farm 10","Farm 7","Farm 2","Farm 3")]
+#Removing Peptostreptococcaceae from data frame as it stands out and overshadows the rest
+Mat_heat <- Mat_heat[!row.names(Mat_heat) %in% Tax_keep,]
+
+#Making column annotation for pheatmap
+annotation_col <- data.frame(Housing_Type = (c("Freestall","Freestall","Freestall","Pasture","Pasture","Pasture")))
+rownames(annotation_col) <- paste0(c("Farm 2", "Farm 3","Farm 10", "Farm 7", "Farm 8", "Farm 9"))
+Housing_Type <- c("#56B4E9", "#CC79A7")
+names(Housing_Type) <- c("Freestall", "Pasture")
+anno_colors <- list(Housing_Type= Housing_Type)
+colnames(annotation_col) <- "Housing Type"
+#Making heatmap of signigicantly associated OTUs with different farms (q>0.01) 
+#Set colors for heatmap
+col.pal <- colorRampPalette(brewer.pal(11, "BrBG"))(50)
+pheatmap(Mat_heat, annotation_col = annotation_col,annotation_colors = anno_colors,cellheight = 13,
+         cellwidth=15, fontface="bold", fontsize_row=12,  fontsize_col = 12, color = col.pal)
+         
+#making heatmap of higher abundant OTUs
+col.pal2 <- colorRampPalette(brewer.pal(11, "PiYG"))(50)
+pheatmap(Mat_heat_less, color = col.pal2, cellwidth=15,cellheight = 13, fontface="bold",cluster_cols=F,
+         annotation_colors = anno_colors, fontsize_row=12,  fontsize_col = 12)
+
+
