@@ -335,17 +335,23 @@ Both_names <- c(`p__Actinobacteria` = "Actinobacteria",`p__Proteobacteria`= "Pro
 MERGE_Phylum.sub.HT <- merge_samples(MERGE_Phylum.sub, "HousingType", fun=mean)
 sample_data(MERGE_Phylum.sub.HT)$HousingType <- c("Drylot", "Freestall", "Pasture")
 
+#calculating error bars to graph mean transformed abundance of major phyla
+melted <- psmelt(MERGE_Phylum.sub)
+grouped <- dplyr::group_by(melted, Farm, Phylum, HousingType)
+phyla <- as.data.frame(dplyr::summarise(grouped, mean=mean(Abundance), sd=sd(Abundance), sem = (sd(Abundance)/sqrt(length(Abundance)))))
+
 #Figure 2
 #graphing transformed abundance of minor + bact and Firm phylums
 postscript('FIG2.eps', width=5, height=6.5)
-plot_bar(MERGE_Phylum.sub, x="Farm", y="Abundance", fill= "Phylum")+
-  geom_bar(aes(color=Phylum, fill=Phylum), stat="identity", position="stack", width=0.5)+
+ggplot(phyla, aes(x=Farm, y=mean, fill= Phylum))+
+  geom_bar(aes(color=Phylum, fill=Phylum), stat="identity", position=position_dodge(), width=0.5)+
+  geom_errorbar(aes(ymin=mean-sem, ymax=mean+sem),width=.2, position=position_dodge())+
   geom_abline(intercept = 0, slope = 0)+
   theme_bw()+
   facet_grid(Phylum ~ HousingType,labeller = as_labeller(Both_names), scales="free", space="free_x")+
   theme(legend.position="none",axis.text.x=element_text(angle=305,face = "bold"),strip.text.y=element_text(angle=0,face = "bold"),strip.text.x=element_text(angle=0,face = "bold"), axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"),
         panel.grid.major.x = element_blank(),panel.grid.minor.y=element_blank())+
-  labs(x="Farm", y="Transformed Abundance")+
+  labs(x="Farm", y="Average Transformed Abundance")+
   scale_fill_discrete(name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+
   scale_color_discrete(name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))
 dev.off()
