@@ -23,6 +23,49 @@ any(taxa_sums(MERGE) == 0)
 sum(taxa_sums(MERGE) == 0)
 #removing OTUs that aren't present in any samples
 MERGE_pruned <- prune_taxa(taxa_sums(MERGE_pruned) > 0, MERGE_pruned)
+
+#----------------------------------------Calculating Sequence Coverage and Library Stats---------------------------------------------------#
+#First Removing Taxa Found Below Low Relative Abundance
+#filtering by removing taxa below 0.005% relative abundance
+MERGE_pruned_rel <- transform_sample_counts(MERGE_pruned, function(x) x / sum(x) )
+MERGE_pruned_rel_filter <- filter_taxa(MERGE_pruned_rel, function(x) mean(x) > 1e-5, TRUE)
+
+#Get taxa names from table filterd by relative abundance 
+Taxa_MERGE_pruned_rel_filter <- as.data.frame(filter_taxa(MERGE_pruned_rel, function(x) mean(x) > 1e-5, FALSE))
+colnames(Taxa_MERGE_pruned_rel_filter) <- c("A")
+#determining the row numbers with TRUE values from 2 lines above
+selectedRows <- which(Taxa_MERGE_pruned_rel_filter$A == "TRUE")
+#determing taxa name from those rows
+selected_Taxa <- rownames(Taxa_MERGE_pruned_rel_filter)[selectedRows]
+#generating new phyloseq object filtered by relative abundance with retained count OTU table
+MERGE_pruned_rel_filtered <- prune_taxa(selected_Taxa,MERGE_pruned)
+
+#Sequence Coverage
+reads_sample <- sample_sums(MERGE_pruned_filtered)
+#getting OTU table to determine coverage of data set
+OTU_Tab <- as.data.frame(otu_table(MERGE_pruned_rel_filtered))
+#OTU_Sum is the vector of sum of reads assigned per OTU
+OTU_Sum <- rowSums(OTU_Tab)
+Coverage(OTU_Sum, Estimator = "ZhangHuang", CheckArguments = TRUE)
+
+tab <- coverage(MERGE_pruned_filtered, threshold = 0.99)
+kable(head(tab))
+
+# Make a data frame with a column for the read counts of each sample
+sample_sum_df <- data.frame(sum = sample_sums(MERGE_pruned_filtered))
+
+# Histogram of sample read counts
+ggplot(sample_sum_df, aes(x = sum)) + 
+  geom_histogram(color = "black", fill = "indianred", binwidth = 2500) +
+  ggtitle("Distribution of sample sequencing depth") + 
+  xlab("Read counts") +
+  theme(axis.title.y = element_blank())
+
+# mean, max and min of sample read counts
+smin <- min(sample_sums(MERGE_pruned_filtered))
+smean <- mean(sample_sums(MERGE_pruned_filtered))
+smax <- max(sample_sums(MERGE_pruned_filtered))
+
 # -------------------------Checking Stats for Filtering-------------------------------------------------------------------------------#
 #How many singletons are there? How many doubletons? before and after filtering
 singletons <- sum(rowSums(MERGE_pruned@otu_table@.Data)==1) #number of singletons with controls and OTUs not present in any sample removed
