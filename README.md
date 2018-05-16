@@ -9,5 +9,6 @@ Scripts for sequence processing and R analysis
 5. Controls file are the scripts to show taxa in control samples.
 6. MaSaLin Analysis is the R scripts used to run and generate output from MaSaLin (Fig 6 & 7, Supplemental Table 4).
 7. Pathogen_Tree are qiime and other bash scripts used to make a reference tree of full lenght 16S rRNA sequences from RDP database.
+8. Seq_info.csv contains the sequence names and taxa names from RDP database used to make the references tree of 16S sequences for pathogens.
 
 Paper:
