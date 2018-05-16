@@ -742,6 +742,22 @@ tax_table(Core_rare) # 1 taxa and 126 samples
 Core <- filter_taxa(MERGE_pruned_filtered, function(x) sum(x >= 1) >= (0.99*length(x)), TRUE)
 tax_table(Core)
 
+#How much of the community do these taxa compose? 
+keep_taxa <- taxa_names(Core)
+#adding symbols each string to denote beginning and end of string to enable only exact matches in grep search
+keep_taxa <-paste("^",keep_taxa,"$", sep="")
+#get relative abundances
+Core_rel <- transform_sample_counts(MERGE_pruned_filtered, function(x) 100*(x/sum(x)))
+Core_rel_otu <- otu_table(Core_rel)
+#filter table to leave only core otus in data frame
+Core_rel_df <- as.matrix(Core_rel_otu[grep(paste(keep_taxa,collapse="|"), row.names(Core_rel_otu), value=TRUE),])
+#total relative abundance of core OTUs in each sample
+total_rel <- as.data.frame(colSums(Core_rel_df))
+#Average, standard dev and medians of relative abundance
+colSds(as.matrix(colSums(Core_rel_df)), na.rm=TRUE) 
+colMeans(as.matrix(colSums(Core_rel_df)), na.rm=TRUE)
+colMedians(as.matrix(colSums(Core_rel_df)), na.rm=TRUE)
+
 #looking for core in Pasture Animals
 HT.P <- subset_samples(MERGE_pruned_filtered, HousingType == c("Pasture"))
 Core.P <- filter_taxa(HT.P, function(x) sum(x >= 1) > (0.99*length(x)), TRUE)
