@@ -1,0 +1,113 @@
+#!/bin/bash
+##
+#SBATCH -p gc
+#SBATCH --mem=8G
+#SBATCH --time=1-3:0:0
+#SBATCH -o /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Qiime_fasttree.out
+#SBATCH -e /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Qiime_fasttree.err
+module load qiime/1.9.1
+module load pplacer/1.1.alpha18
+
+###--------------------------------------Creating a query file of sequences for Alignment------------------------------------------------------------------------------------####
+#create fasta file by filtering original biom file to get query sequences
+#getting names of sequences in filtered biom file
+grep ">" biom_filtered_seqs.fasta > names.txt
+#add tax information to the file to make "new_names.txt"
+perl rename_jill.pl
+
+###--------------------------------------Creating a Reference file of pathogen sequences for Alignment-----------------------------------------------------------------------####
+#moving sequences to one line each to do a line count
+seqmagick convert --line-wrap 0 rdp_campylobacter_209seqs.fa rdp_campylobacter_209seq
+seqmagick convert --line-wrap 0 rdp_Ecoli_45seqs.fa rdp_Ecoli_45seqs.fa
+seqmagick convert --line-wrap 0 rdp_Salmonella_287seqs.fa rdp_Salmonella_287seqs.fa
+#combine all pathogen fasta files
+cat rdp_campylobacter_209seqs.fa rdp_Ecoli_45seqs.fa rdp_Salmonella_287seqs.fa > rdp_Pathogens_541seqs.fa
+#removing duplicate sequences by sequence content and keeping first seen helps to reduce tree size
+seqmagick convert --deduplicate-sequences rdp_Pathogens_541seqs.fa rdp_Pathogens_541seqs_filtered.fa
+#changing line break
+seqmagick convert --line-wrap 0 rdp_Pathogens_541seqs_filtered.fa rdp_Pathogens_541seqs_filtered.fa
+#changing names of sequences to remove blank spaces and move sequence to one line so it makes more sense/easier to read when you build the tree
+###*****you can't have : / () in the sequence names or it won't make the reference package for some dumb reason....****####
+seqmagick convert --pattern-replace " " "_" rdp_Pathogens_541seqs_filtered.fa rdp_Pathogens_541seqs_convert.fa
+seqmagick convert --pattern-replace ";" "" rdp_Pathogens_541seqs_convert.fa rdp_Pathogens_541seqs_convert.fa
+seqmagick convert --pattern-replace ":" "_" rdp_Pathogens_541seqs_convert.fa rdp_Pathogens_541seqs_convert.fa
+seqmagick convert --pattern-replace "(T)" "" rdp_Pathogens_541seqs_convert.fa rdp_Pathogens_541seqs_convert.fa
+seqmagick convert --pattern-replace "/" "_" rdp_Pathogens_541seqs_convert.fa rdp_Pathogens_541seqs_convert.fa
+seqmagick convert --line-wrap 0 rdp_Pathogens_541seqs_convert.fa rdp_Pathogens_541seqs_convert.fa
+
+cat /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/NCBI_Seq/NCBI_Hit_filtered_convert.fa /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/rdp_Pathogens_541seqs_convert.fa > /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/rdp_Pathogens_541seqs_convert_filtered.fa
+
+#Filtering sequences from Ref file to prune tree
+time filter_fasta.py -f /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/rdp_Pathogens_541seqs_convert.fa -o /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/rdp_Pathogens_541seqs_convert_filtered.fa -s /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/seqs_to_remove.txt -n
+
+###--------------------------------------Aligning reference and query files separately and Combined---------------------------------------------------------------------------####
+#Aligning Reference sequences 
+ssu-align /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/rdp_Pathogens_541seqs_convert_filtered.fa Aligned_Ref -f --dna
+#Aligning Query sequences
+ssu-align /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/biom_filtered_seqs_newname.fa Aligned_Query -f --dna
+
+#converting Stockholm alignments to aligned FASTA for making trees
+#first copy to a end title with recognization end 
+cp /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Ref/Aligned_Ref.bacteria.stk /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Ref/Aligned_Ref.bacteria.sto
+cp /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Query/Aligned_Query.bacteria.stk /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Query/Aligned_Query.bacteria.sto
+seqmagick convert /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Ref/Aligned_Ref.bacteria.sto /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Ref/Aligned_Ref.bacteria.fasta
+seqmagick convert /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Query/Aligned_Query.bacteria.sto /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Query/Aligned_Query.bacteria.fasta
+
+#combing alignments
+cat /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/biom_filtered_seqs_newname.fa /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/rdp_Pathogens_541seqs_convert_filtered.fa > /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Ref_Query_Combo.fasta
+ssu-align /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Ref_Query_Combo.fasta Aligned_Combo -f --dna
+#converting Stockholm alignments to aligned combo FASTA for making trees
+cp /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Combo/Aligned_Combo.bacteria.stk /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Combo/Aligned_Combo.bacteria.sto
+seqmagick convert /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Combo/Aligned_Combo.bacteria.sto /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Combo/Aligned_Combo.bacteria.fasta
+
+###--------------------------------------Making Trees with reference sequence file--------------------------------------------------------------------------------------------####
+#making trees with FastTree --> realigned with SSU-Align
+time make_phylogeny.py -i /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Ref/Aligned_Ref.bacteria.fasta -o /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Bact_Ref_realigned.tre -t fasttree -l /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/fasttree_log_realigned.txt
+time /share/tearlab/Maga/Jill/bin/FastTree -nt -gtr -log Bact_Ref_realigned.log /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Ref/Aligned_Ref.bacteria.fasta > /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Bact_Ref_Realigned_Fasttree.tre
+
+###--------------------------------------Making reference Packages with information on reference sequences--------------------------------------------------------------------####
+#Make reference package w/o TaxIDs
+#time taxit create -c -l 16s_rRNA --package-name /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Bact_Ref_realigned.refpkg --aln-fasta /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Ref/Aligned_Ref.bacteria.fasta --tree-stats /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Bact_Ref_realigned.log --tree-file /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Bact_Ref_Realigned_Fasttree.tre  --stats-type FastTree
+
+#Make reference package w/ TaxIDs
+#First download taxa database from NCBI
+#time /share/tearlab/Maga/Jill/bin/taxtastic-0.5.4/taxit new_database -d taxonomy.db --download-dir /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/NCBI_Taxonomy
+
+#getting TaxIDs
+#grep ">" rdp_Pathogens_541seqs_convert.fa > taxa_names.txt
+#search and replace with >.*?_ to get rid of beginning in notepadd++
+#for some reason this doesn't work well see "GREP_Pathogens.bash" to get IDs.txt then manually edit file to get Seq_info.csv
+#time /share/tearlab/Maga/Jill/bin/taxtastic-0.5.4/taxit taxids --verbose -d /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/taxonomy.db --name-file /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/taxa_names2.txt --out-file /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/TaxaIDs.txt
+#also not clear why this doesn't work
+#time /share/tearlab/Maga/Jill/bin/taxtastic-0.5.4/taxit taxtable -d /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/taxonomy.db --tax-ids /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/tax_ids2.txt -o /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/taxa1.csv --full
+#use this to get taxa.csv to known how many taxa there should be when you use taxtable with seq_info.csv
+#time /share/tearlab/Maga/Jill/bin/taxtastic-0.5.4/taxit taxtable -d /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/taxonomy.db --tax-names /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/taxa_names2.txt -o /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/taxa2.csv --full
+
+
+#making seq_info.csv file
+#grep ">" /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/rdp_Pathogens_541seqs_convert.fa > /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Ref_names.txt
+#getting TaxIDs
+#time /share/tearlab/Maga/Jill/bin/taxtastic-0.5.4/taxit taxtable -d /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/taxonomy.db -i /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Seq_info.csv -o /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/taxa3.csv --full
+
+#Making minimal file with just Seq_name and Tax_id columns
+#awk -F "," '{print $1 "," $3}' Seq_info.csv > Seq_info_minA.csv
+
+#Make reference package w/ TaxIDs
+#time /share/tearlab/Maga/Jill/bin/taxtastic-0.5.4/taxit create -c -l 16s_rRNA --seq-info /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Seq_info_minA.csv --taxonomy /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/taxa3.csv --package-name /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Bact_Ref_realigned_taxa.refpkg --aln-fasta /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Ref/Aligned_Ref.bacteria.fasta --tree-stats /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Bact_Ref_realigned.log --tree-file /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Bact_Ref_Realigned_Fasttree.tre --stats-type FastTree
+
+#anaylsis
+time pplacer --out-dir /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/PPlacer -c /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Bact_Ref_realigned_taxa.refpkg --map-mrca /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/PPlacer/Map.txt --map-mrca-min 0.75 --map-identity /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/Aligned_Combo/Aligned_Combo.bacteria.fasta
+time guppy fat --out-dir /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/PPlacer/ /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/PPlacer/Aligned_Combo.bacteria.jplace
+time guppy tog --out-dir /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/PPlacer/ /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/PPlacer/Aligned_Combo.bacteria.jplace
+time guppy sing --xml --out-dir /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/PPlacer/ /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/PPlacer/Aligned_Combo.bacteria.jplace
+time guppy edpl --csv --out-dir /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/PPlacer/ -o Aligned_Combo.bacteria.edpl.csv /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/PPlacer/Aligned_Combo.bacteria.jplace
+time guppy to_csv --out-dir /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/PPlacer/ -o Aligned_Combo.bacteria.csv /share/tearlab/Maga/Jill/16s/Alignment_Tree/Pathogens/PPlacer/Aligned_Combo.bacteria.jplace
+
+#Filtering sequences from aligned combo file containing Query sequences that have a higher (or equal to) likelyhood than 75% and references sequences
+time filter_fasta.py -f /share/tearlab/Maga/Jill/16s/Alignment_Tree/Aligned_Combo/Aligned_Combo.bacteria.fasta -o /share/tearlab/Maga/Jill/16s/Alignment_Tree/Aligned_Combo/Aligned_Combo_Filtered.bacteria.fasta -s /share/tearlab/Maga/Jill/16s/Alignment_Tree/Aligned_Combo_Filtered_Both.names.txt
+
+time pplacer --out-dir /share/tearlab/Maga/Jill/16s/Alignment_Tree/PPlacer_Filtered -c /share/tearlab/Maga/Jill/16s/Alignment_Tree/Bact_Ref_realigned_taxa.refpkg --map-mrca /share/tearlab/Maga/Jill/16s/Alignment_Tree/PPlacer_Filtered/Map_Filtered.txt --map-mrca-min 0.75 --map-identity /share/tearlab/Maga/Jill/16s/Alignment_Tree/Aligned_Combo/Aligned_Combo_Filtered.bacteria.fasta
+time guppy fat --out-dir /share/tearlab/Maga/Jill/16s/Alignment_Tree/PPlacer_Filtered/ /share/tearlab/Maga/Jill/16s/Alignment_Tree/PPlacer_Filtered/Aligned_Combo_Filtered.bacteria.jplace
+time guppy to_csv --out-dir /share/tearlab/Maga/Jill/16s/Alignment_Tree/PPlacer_Filtered/ -o Aligned_Combo_Filtered.bacteria.csv /share/tearlab/Maga/Jill/16s/Alignment_Tree/PPlacer_Filtered/Aligned_Combo_Filtered.bacteria.jplace
+time guppy info --csv --out-dir /share/tearlab/Maga/Jill/16s/Alignment_Tree/PPlace_Filtered/ -o Aligned_Combo_Filtered.bacteria.info.csv /share/tearlab/Maga/Jill/16s/Alignment_Tree/PPlacer_Filtered/Aligned_Combo_Filtered.bacteria.jplace
+time guppy tog --out-dir /share/tearlab/Maga/Jill/16s/Alignment_Tree/PPlacer_Filtered/ /share/tearlab/Maga/Jill/16s/Alignment_Tree/PPlacer_Filtered/Aligned_Combo_Filtered.bacteria.jplace
