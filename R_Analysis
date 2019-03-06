@@ -649,6 +649,11 @@ dev.off()
 ord_weighted<- ordinate(MERGE_pruned_filtered.HT, method="PCoA", distance = "unifrac", weighted = TRUE)
 ord_unweighted <- ordinate(MERGE_pruned_filtered.HT, method="PCoA", distance = "unifrac", weighted = FALSE)
 
+#pulling out eigenvalues to graph
+eval_per_unwuf <- (ord_unweighted$values$Eigenvalues/(sum(ord_unweighted$values$Eigenvalues)))*100
+#Plotting eigenvalues to determine how many axis should be shown in graph
+barplot(eval_per_unwuf[1:10],names.arg=paste0('Eigenvalue',1:10), ylab="Percent of explained variances", col="blue")
+
 #getting data for scatter plot
 Meta_Scatter <- data.frame(sample_data(MERGE_pruned_filtered.HT))
 Axis_unweighted <- as.data.frame(ord_unweighted$vectors[,1:4])
