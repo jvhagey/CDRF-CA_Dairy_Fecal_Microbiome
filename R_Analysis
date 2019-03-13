@@ -79,10 +79,17 @@ sum(singletons,doubletons,tripletons)
 #you need to filter out enough so the data doesn't have too many zeros, which won't fit negative binomial distribution well see line 167. 
 MERGE_pruned_filtered <- phyloseq::filter_taxa(MERGE_pruned, function(x) sum(x > 3) > (0.02*length(x)), TRUE)
 
-#Save copy just in case
-MERGE_pruned_filtered.original <- MERGE_pruned_filtered
-#making copies to add in variance stabilized counts later
-MERGE_pruned_filtered.HT <- MERGE_pruned_filtered
+#---------------------------------------Cleaning up phyloseq object metadata---------------------------------------------------------#
+#Clean up phyloseq object for later
+tax_table(MERGE_pruned_filtered) <- gsub("p__", "",tax_table(MERGE_pruned_filtered))
+tax_table(MERGE_pruned_filtered) <- gsub("f__", "",tax_table(MERGE_pruned_filtered))
+tax_table(MERGE_pruned_filtered) <- gsub("g__", "",tax_table(MERGE_pruned_filtered))
+tax_table(MERGE_pruned_filtered) <- gsub("c__", "",tax_table(MERGE_pruned_filtered))
+tax_table(MERGE_pruned_filtered) <- gsub("o__", "",tax_table(MERGE_pruned_filtered))
+tax_table(MERGE_pruned_filtered) <- gsub("s__", "",tax_table(MERGE_pruned_filtered))
+tax_table(MERGE_pruned_filtered) <- gsub("^$", "Unassigned",tax_table(MERGE_pruned_filtered))
+tax_table(MERGE_pruned_filtered) <- gsub("]", "",tax_table(MERGE_pruned_filtered))
+tax_table(MERGE_pruned_filtered) <- gsub("[[]", "",tax_table(MERGE_pruned_filtered))
 
 #-------------------------------------------------------Specific filters------------------------------------------------------------------#
 #Create table, number of features for each phyla
@@ -94,6 +101,11 @@ MERGE_pruned_filtered <- subset_taxa(MERGE_pruned_filtered, !is.na(Phylum) & !Ph
 #removing phyla that are assigned to Eukaryotes as these are not suppose to be amplified by the primer pair
 MERGE_pruned_filtered <- subset_taxa(MERGE_pruned_filtered, !Phylum %in% "Euryarchaeota")
 #10 Eukaryotic OTUs were removed from data
+
+#Save copy just in case
+MERGE_pruned_filtered.original <- MERGE_pruned_filtered
+#making copies to add in variance stabilized counts later
+MERGE_pruned_filtered.HT <- MERGE_pruned_filtered
 
 # -------------------------Checking Stats for Filtering-------------------------------------------------------------------------------------#
 #How many singletons are there? How many doubletons? before and after filtering
@@ -206,6 +218,8 @@ sigtabFam[[3]]$Family <- factor(as.character(sigtabFam[[3]]$Family), levels=name
 
 #Identifing OTU with lowest adjusted p.value
 topOTU <- lapply(res_HT, function(res_HT) rownames(res_HT)[which.min(res_HT$padj)])
+#Identifing OTU with largest logfold2difference
+topOTUchange <- lapply(res_HT, function(res_HT) rownames(res_HT)[which.min(res_HT$log2FoldChange)])
 
 #Plot of OTU counts for OTU with lowest adjuested p.value (AKA most signficantly changed)
 plotCounts(dds_HT, gene=topOTU[[1]], intgroup=c("Farm"))
@@ -231,91 +245,97 @@ TopOTU_FSvsDL <- res_HT_FSvsDL.taxa[1,10:13]
 
 #Figure 3
 Three_A<-postscript('3A.eps', width=6, height=4)
-plotMA(res_HT[[1]],xlab="Mean of Normalized Counts", ylab="Log Fold Change", ylim=c(-5,5), cex.main=1.5,cex.lab=1.25, cex=0.25,main="A")
+plotMA(res_HT[[1]],xlab="Mean of Normalized Counts", ylab="Log Fold Difference", ylim=c(-5.5,5.5), cex.main=1.5,cex.lab=1.25, cex=0.25,main="A")
 with(res_HT[[1]][topOTU[[1]], ], {
   points(baseMean, log2FoldChange, col="dodgerblue", cex=2, lwd=2)
-  text(baseMean, 4.5, "Clostridiales", cex=1.5, font= 3, pos=4, col="dodgerblue")
+  text(2.6, 4.8, "Clostridiales", cex=1.5, font= 3, pos=4, col="dodgerblue")
+})
+with(res_HT[[1]][topOTUchange[[1]], ], {
+  points(baseMean, log2FoldChange, col="forestgreen", cex=2, lwd=2)
+  text(baseMean, log2FoldChange, "Clostridiaceae", cex=1.5, font= 3, pos=4, col="forestgreen")
 })
 dev.off()
 
 postscript('3C.eps', width=6, height=4)
-Three_B<-plotMA(res_HT[[2]],xlab="Mean of Normalized Counts", ylab="Log Fold Change", ylim=c(-7.5,7.5),cex.main=1.5,cex.lab=1.25, cex=0.25, main="C")
+Three_B<-plotMA(res_HT[[2]],xlab="Mean of Normalized Counts", ylab="Log Fold Difference", ylim=c(-12,12),cex.main=1.5,cex.lab=1.25, cex=0.25, main="C")
 with(res_HT[[2]][topOTU[[2]], ], {
   points(baseMean, log2FoldChange, col="dodgerblue", cex=2, lwd=2)
-  text(baseMean, 6.5, "Coriobacteriaceae", cex=1.5, font= 3, pos=2, col="dodgerblue")
+  text(baseMean, 7.5, "Coriobacteriaceae", cex=1.5, font= 3, pos=2, col="dodgerblue")
+})
+with(res_HT[[2]][topOTUchange[[2]], ], {
+  points(baseMean, log2FoldChange, col="forestgreen", cex=2, lwd=2)
+ text(4.5, log2FoldChange, "Bifidobacterium", cex=1.5, font= 3, pos=4, col="forestgreen")
 })
 dev.off()
 
 postscript('3B.eps', width=6, height=4)
-Three_C<-plotMA(res_HT[[3]], xlab="Mean of Normalized Counts", ylab="Log Fold Change", ylim=c(-7.5,7.5), cex.main=1.5,cex.lab=1.25, cex=0.25, main="B")
+Three_C<-plotMA(res_HT[[3]], xlab="Mean of Normalized Counts", ylab="Log Fold Difference", ylim=c(-10,10), cex.main=1.5,cex.lab=1.25, cex=0.25, main="B")
 with(res_HT[[3]][topOTU[[3]], ], {
   points(baseMean, log2FoldChange, col="dodgerblue", cex=2, lwd=2)
-  text(baseMean, 6.5, "Coriobacteriaceae", cex=1.5, font= 3, pos=2, col="dodgerblue")
+  text(baseMean, 7.5, "Coriobacteriaceae", cex=1.5, font= 3, pos=2, col="dodgerblue")
+})
+with(res_HT[[3]][topOTUchange[[3]], ], {
+  points(baseMean, log2FoldChange, col="forestgreen", cex=2, lwd=2)
+  text(4.2, log2FoldChange, "Bifidobacterium", cex=1.5, font= 3, pos=4, col="forestgreen")
 })
 dev.off()
 
-#---------------------------------------------------------Writing Excel Files for Fold Changes------------------------------------------------#
+#----------------------------------------------------Writing Excel Files for Fold Changes------------------------------------------------#
+#Supplementary table 1
+#renaming one column
+colnames(res_HT_FSvsP.taxa)[2] <- "log2FoldDifference"
+colnames(res_HT_DLvsP.taxa)[2] <- "log2FoldDifference"
+colnames(res_HT_FSvsDL.taxa)[2] <- "log2FoldDifference"
+
 #Supplementary table 1
 #exporting fold changes to excel file
-write.xlsx(res_HT_FSvsP.taxa, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/logchange_FSvsP.xlsx")
-write.xlsx(res_HT_DLvsP.taxa, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/logchange_DLvsP.xlsx")
-write.xlsx(res_HT_FSvsDL.taxa, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/logchange_FSvsDL.xlsx")
+write.xlsx(res_HT_FSvsP.taxa, "logchange_FSvsP.xlsx",sheetName="Freestall vs Pasture")
+write.xlsx(res_HT_DLvsP.taxa, "logchange_DLvsP.xlsx", sheetName="Drylot vs Pasture")
+write.xlsx(res_HT_FSvsDL.taxa, "logchange_FSvsDL.xlsx", sheetName="Freestall vs Drylot")
 
 #exporting significant fold changes to excel file
-write.xlsx(sigtabFam[[3]], "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/sigtabfam_FSvsP.xlsx")
-write.xlsx(sigtabFam[[2]], "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/sigtabfam_DLvsP.xlsx")
-write.xlsx(sigtabFam[[1]], "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/sigtabfam_FSvsDL.xlsx")
+write.xlsx(sigtabFam[[3]], "sigtabfam.xlsx",sheetName="Freestall vs Pasture")
+write.xlsx(sigtabFam[[2]], "sigtabfam.xlsx", sheetName="Drylot vs Pasture")
+write.xlsx(sigtabFam[[1]], "sigtabfam.xlsx", sheetName="Freestall vs Drylot")
 
 #--------------------------------------------------Graphing Results----------------------------------------------------------------------------#
 #Plot of log2foldchanges
 #Assigning colors to Phylums
-cbPalette <- c("p__Bacteroidetes"= "#009E73","p__Firmicutes"="#CC79A7","p__Actinobacteria"="#56B4E9","p__Proteobacteria"="#000000",
-               "p__Spirochaetes"="#F0E442","p__Lentisphaerae"="#0072B2","p__Tenericutes"="#D55E00","p__Verrucomicrobia"="#E69F00","p__Euryarchaeota"="#999999")
-#Assigning Phylum Names
-breaks_Phylum <-c("p__Firmicutes","p__Bacteroidetes","p__Planctomycetes","p__Lentisphaerae","p__Proteobacteria","p__Verrucomicrobia","p__Elusimicrobia","p__Fibrobacteres","p__Tenericutes","p__Euryarchaeota","p__Cyanobacteria","p__Spirochaetes","p__Actinobacteria")
-labels_Phylum <-c("Firmicutes","Bacteroidetes","Planctomycetes","Lentisphaerae","Proteobacteria","Verrucomicrobia","Elusimicrobia","Fibrobacteres","Tenericutes","Euryarchaeota","Cyanobacteria","Spirochaetes","Actinobacteria")
-#Assigning Family Names  
-breaks_Family <-c("f__","f__Victivallaceae","f__[Mogibacteriaceae]","f__Erysipelotrichaceae","f__Anaeroplasmataceae","f__Porphyromonadaceae","f__S24-7","f__RF16","f__Rikenellaceae","f__Prevotellaceae","f__Coriobacteriaceae","f__Veillonellaceae","f__Spirochaetaceae","f__[Paraprevotellaceae]","f__Bacteroidaceae","f__Peptostreptococcaceae","f__Turicibacteraceae","f__Lachnospiraceae","f__Clostridiaceae","f__Ruminococcaceae",
-  "f__Alcaligenaceae","f__Campylobacteraceae","f__Desulfovibrionaceae","f__Enterobacteriaceae", "f__Neisseriaceae","f__Succinivibrionaceae",
-  "f__p-2534-18B5","f__Lactobacillaceae","f__RFP12","f__BS11","f__Bacteroidaceae","f__Methanobacteriaceae","f__Peptococcaceae","f__Bifidobacteriaceae","f__Streptococcaceae",
-  "f__[Barnesiellaceae]","f__Christensenellaceae","f__[Methanomassiliicoccaceae]")
-labels_Family <-c("Unassigned","Victivallaceae","Mogibacteriaceae","Erysipelotrichaceae","Anaeroplasmataceae","Porphyromonadaceae","S24-7","RF16","Rikenellaceae","Prevotellaceae","Coriobacteriaceae","Veillonellaceae","Spirochaetaceae","Paraprevotellaceae","Bacteroidaceae","Peptostreptococcaceae","Turicibacteraceae","Lachnospiraceae","Clostridiaceae","Ruminococcaceae",
-  "Alcaligenaceae","Campylobacteraceae","Desulfovibrionaceae","Enterobacteriaceae","Neisseriaceae","Succinivibrionaceae",
-  "p-2534-18B5","Lactobacillaceae","RFP12","BS11","Bacteroidaceae","Methanobacteriaceae","Peptococcaceae","Bifidobacteriaceae","Streptococcaceae",
-  "Barnesiellaceae","Christensenellaceae","Methanomassiliicoccaceae")
+cbPalette <- c("Bacteroidetes"="#56B4E9","Firmicutes"="#CC79A7","Actinobacteria"="#009E73","Proteobacteria"="#000000",
+               "Spirochaetes"="#E69F00","Lentisphaerae"="#0072B2","Tenericutes"="#999999","Verrucomicrobia"="#F0E442")
 
 #Figure 4
 postscript('4A.eps', width=6.5, height=5)
+level_order <- sort(as.character(unique(sigtabFam[[1]]$Family))) #getting names to order graph alphabetically
 ggplot(sigtabFam[[1]], aes(y=Family, x=log2FoldChange, color=Phylum)) +
   geom_vline(xintercept = 0.0, color = "black", size = 0.5)+
-  geom_point(size=3)+ xlim(-4.5,4.5)+
-  labs(y="Family", x="Log2 Fold Change", title="A")+
+  geom_point(size=3)+ xlim(-5.5,5.5)+
+  labs(y="Family", x="Log2 Fold Difference", title="A")+
   theme(axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))+
-  scale_fill_manual(values=cbPalette,name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+
-  scale_color_manual(values=cbPalette,name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+ 
-  scale_y_discrete(breaks=(breaks_Family), labels=(labels_Family))
+  scale_color_manual(values=cbPalette) +
+  scale_y_discrete(limits = rev(c(level_order[-24],level_order[24])))
 dev.off()
 
 postscript('4C.eps', width=6.5, height=5)
+level_order <- sort(as.character(unique(sigtabFam[[2]]$Family))) #getting names to order graph alphabetically
 ggplot(sigtabFam[[2]], aes(y=Family, x=log2FoldChange, color=Phylum)) +
   geom_vline(xintercept = 0.0, color = "gray", size = 0.5)+
-  geom_point(size=3)+ xlim(-7.5,7.5)+
-  labs(y="Family", x="Log2 Fold Change", title="C")+
-  theme(axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"),legend.position="bottom")+
-  scale_fill_manual(values=cbPalette,name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+
-  scale_color_manual(values=cbPalette,name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+
-  scale_y_discrete(breaks=(breaks_Family), labels=(labels_Family))
+  geom_point(size=3)+ xlim(-12,12)+
+  labs(y="Family", x="Log2 Fold Difference", title="C")+
+  theme(axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))+
+  scale_color_manual(values=cbPalette)+
+  scale_y_discrete(limits = rev(c(level_order[-29],level_order[29])))
 dev.off()
 
 postscript('4B.eps', width=6.5, height=5)
+level_order <- sort(as.character(unique(sigtabFam[[3]]$Family))) #getting names to order graph alphabetically
 ggplot(sigtabFam[[3]], aes(y=Family, x=log2FoldChange, color=Phylum)) +
   geom_vline(xintercept = 0.0, color = "gray", size = 0.5)+
-  geom_point(size=3)+ xlim(-7.5,7.5)+
-  labs(y="Family", x="Log2 Fold Change", title="B")+
+  geom_point(size=3)+ xlim(-10,10)+
+  labs(y="Family", x="Log2 Fold Difference", title="B")+
   theme(axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))+
-  scale_fill_manual(values=cbPalette,name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+
-  scale_color_manual(values=cbPalette,name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+
-  scale_y_discrete(breaks=(breaks_Family), labels=(labels_Family))
+  scale_color_manual(values=cbPalette)+
+  scale_y_discrete(limits = rev(c(level_order[-24],level_order[24])))
 dev.off()
 
 #----------------------------------------------------Subsetting Farms by Phylum--------------------------------------------------------------------#
