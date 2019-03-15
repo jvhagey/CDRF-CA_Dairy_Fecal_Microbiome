@@ -354,21 +354,23 @@ MERGE_Phylum.zero <- tax_glom(MERGE_pruned_filtered.HT.zero, "Phylum")
 MERGE_rel.Farm <- transform_sample_counts(MERGE_Phylum_HT.zero, function(x) {100*x/sum(x)})
 MERGE_rel <- transform_sample_counts(MERGE_Phylum.zero, function(x) {100*x/sum(x)})
 
+#----------------------------------------------------Relative Abundance of Phyla Overall--------------------------------------------------------------#
 #Table 1
-#writing percent relative abundance to an excel sheet
-Feces_OTU_Trans <- t(MERGE_rel.Farm@otu_table@.Data)
-write.xlsx(Feces_OTU_Trans, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/Feces_Rel_Trans_Zero3.xlsx")
-Feces_OTU_Trans_taxa <- MERGE_rel.Farm@tax_table@.Data
-write.xlsx(Feces_OTU_Trans_taxa, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/Feces_Rel_Trans_Zero_taxa3.xlsx")
+#writing percent relative abundance
+Feces_OTU_Trans <- t(MERGE_rel.Farm@otu_table@.Data) #relative abundance of each phyla by farm
+row.names(Feces_OTU_Trans) <- as.data.frame(MERGE_rel.Farm@tax_table@.Data)$Phylum
+grouped_phyla <- dplyr::group_by(melt(Feces_OTU_Trans), Var1)
+tab_1 <- as.data.frame(dplyr::summarise(grouped_phyla, mean=mean(value), sd=sd(value), sem = (sd(value)/sqrt(length(value)))))
+arrange(tab_1, -mean)#print table ordered by mean
 
 Feces_OTU_Trans_taxa.HT <- MERGE_rel@tax_table@.Data
-write.xlsx(Feces_OTU_Trans_taxa.HT, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/Feces_Rel_Trans_Zero_taxa_all.xlsx")
+write.xlsx(Feces_OTU_Trans_taxa.HT, "Feces_Rel_Trans_Zero_taxa_all.xlsx")
 Feces_OTU_Trans.HT <- MERGE_rel@otu_table@.Data
-write.xlsx(Feces_OTU_Trans.HT, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/no mitos or chloro/Feces_Rel_Trans_Zero_all.xlsx")
+write.xlsx(Feces_OTU_Trans.HT, "Feces_Rel_Trans_Zero_all.xlsx")
 
 #editing sample data as the metadata gets remove when merging
 old <- MERGE_Phylum_HT.zero@sam_data@.Data
-write.xlsx(old, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/old_sample_data.xlsx")
+write.xlsx(old, "old_sample_data.xlsx")
 #open file in excel and enter the appropriate metadata
 new <- read.xlsx("new_sample_data.xlsx",sheetIndex = 1)
 #new <- sample_data(new)
@@ -376,36 +378,29 @@ new <- read.xlsx("new_sample_data.xlsx",sheetIndex = 1)
 #sample_data(MERGE_Phylum_HT.zero) <- sample_data(new)
 #sample_data(MERGE_Phylum_HT.zero)
 
+#----------------------------------------------------Graphing Relative Abundance of Phyla--------------------------------------------------------------#
 #subsetting phylums for graphing
-Phylum.1 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Planctomycetes"))
-Phylum.2 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Lentisphaerae"))
-Phylum.3 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Proteobacteria"))
-Phylum.4 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Verrucomicrobia"))
-Phylum.5 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Elusimicrobia"))
-Phylum.6 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Fibrobacteres"))
-Phylum.7 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Tenericutes"))
-Phylum.8 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Euryarchaeota"))
-Phylum.9 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Cyanobacteria"))
-Phylum.10 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Euryarchaeota"))
-Phylum.11 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Spirochaetes"))
-Phylum.12 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Actinobacteria"))
-Phylum.13 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Firmicutes"))
-Phylum.14 = subset_taxa(MERGE_Phylum_HT.zero, Phylum == c("p__Bacteroidetes"))
+Phylum.1 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Planctomycetes"))
+Phylum.2 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Lentisphaerae"))
+Phylum.3 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Proteobacteria"))
+Phylum.4 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Verrucomicrobia"))
+Phylum.5 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Elusimicrobia"))
+Phylum.6 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Fibrobacteres"))
+Phylum.7 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Tenericutes"))
+Phylum.9 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Cyanobacteria"))
+Phylum.11 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Spirochaetes"))
+Phylum.12 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Actinobacteria"))
+Phylum.13 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Firmicutes"))
+Phylum.14 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Bacteroidetes"))
 
 #Merging groups of specific Phylums
 #minor contributors + Bact and Firm
 MERGE_Phylum.sub <- merge_phyloseq(Phylum.13, Phylum.14,Phylum.12, Phylum.3, Phylum.7,Phylum.11)
 #everything, but Bact and Firm
-MERGE_Phylum.sub2 <- merge_phyloseq(Phylum.1,Phylum.2,Phylum.6,Phylum.5,Phylum.8,Phylum.9,Phylum.10, Phylum.12, Phylum.4, Phylum.3, Phylum.7,Phylum.11)
+MERGE_Phylum.sub2 <- merge_phyloseq(Phylum.1,Phylum.2,Phylum.6,Phylum.5,Phylum.9,Phylum.12, Phylum.4, Phylum.3, Phylum.7,Phylum.11)
 #Relative abundance of everything
 Phylum_rel <- transform_sample_counts(MERGE_Phylum_HT.zero, function(x) 100*x/sum(x))
-
 #------------------------------Graphing relative transformed abundances with different phylums-------------------------------------------#
-#Assigning names for labeller
-Both_names <- c(`p__Actinobacteria` = "Actinobacteria",`p__Proteobacteria`= "Proteobacteria",`p__Proteobacteria`= "Proteobacteria",`p__Verrucomicrobia`= "Verrucomicrobia",`p__Spirochaetes`= "Spirochaetes",`p__Cyanobacteria`= "Cyanobacteria",`p__Euryarchaeota`= "Euryarchaeota",`p__Tenericutes`= "Tenericutes",
-                `p__Bacteroidetes` = "Bacteroidetes",`p__Firmicutes` = "Firmicutes",`p__Elusimicrobia` = "Elusimicrobia",`p__Fibrobacteres` = "Fibrobacteres",`p__Lentisphaerae` = "Lentisphaerae",`p__Planctomycetes` = "Planctomycetes",
-                `Freestall` = "Freestall",`Drylot` = "Drylot",`Pasture` = "Pasture")#graphing transformed relative abundace of all phylums, but Bact and Firm 
-
 MERGE_Phylum.sub.HT <- merge_samples(MERGE_Phylum.sub, "HousingType", fun=mean)
 sample_data(MERGE_Phylum.sub.HT)$HousingType <- c("Drylot", "Freestall", "Pasture")
 
@@ -422,12 +417,12 @@ ggplot(phyla, aes(x=Farm, y=mean, fill= Phylum))+
   geom_errorbar(aes(ymin=mean-sem, ymax=mean+sem),width=.2, position=position_dodge())+
   geom_abline(intercept = 0, slope = 0)+
   theme_bw()+
-  facet_grid(Phylum ~ HousingType,labeller = as_labeller(Both_names), scales="free", space="free_x")+
-  theme(legend.position="none",axis.text.x=element_text(angle=305,face = "bold"),strip.text.y=element_text(angle=0,face = "bold"),strip.text.x=element_text(angle=0,face = "bold"), axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"),
-        panel.grid.major.x = element_blank(),panel.grid.minor.y=element_blank())+
-  labs(x="Farm", y="Average Transformed Abundance")+
-  scale_fill_discrete(name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))+
-  scale_color_discrete(name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))
+  facet_grid(Phylum ~ HousingType, scales="free", space="free_x")+
+  theme(legend.position="none",axis.text.x=element_text(angle=305,face = "bold"),strip.text.y=element_text(angle=0,face = "bold"),
+        strip.text.x=element_text(angle=0,face = "bold"), axis.title=element_text(face = "bold"), panel.grid.major.x = element_blank(), 
+        axis.line.x = element_line(size = 0.5, linetype = "solid", colour = "black"), axis.line.y = element_line(size = 0.5, linetype = "solid", colour = "black"), 
+        panel.spacing.x=unit(0, "lines"),panel.spacing.y=unit(0.4, "lines"), panel.border = element_blank(),panel.grid.minor.y=element_blank())+
+  labs(x="Farm", y="Average Transformed Abundance")
 dev.off()
 
 plot_bar(MERGE_Phylum.sub.HT, x="HousingType", y="Abundance", fill= "Phylum")+
