@@ -91,17 +91,6 @@ tax_table(MERGE_pruned_filtered) <- gsub("^$", "Unassigned",tax_table(MERGE_prun
 tax_table(MERGE_pruned_filtered) <- gsub("]", "",tax_table(MERGE_pruned_filtered))
 tax_table(MERGE_pruned_filtered) <- gsub("[[]", "",tax_table(MERGE_pruned_filtered))
 
-#-------------------------------------------------------Specific filters------------------------------------------------------------------#
-#Create table, number of features for each phyla
-table(tax_table(MERGE_pruned_filtered)[, "Phylum"], exclude = NULL)
-#There was 60 AVSs that weren't assigned to a phyla so these were be removed for analysis
-
-#Removing ambiguous phylum annotation
-MERGE_pruned_filtered <- subset_taxa(MERGE_pruned_filtered, !is.na(Phylum) & !Phylum %in% c("", "uncharacterized"))
-#removing phyla that are assigned to Eukaryotes as these are not suppose to be amplified by the primer pair
-MERGE_pruned_filtered <- subset_taxa(MERGE_pruned_filtered, !Phylum %in% "Euryarchaeota")
-#10 Eukaryotic OTUs were removed from data
-
 #Save copy just in case
 MERGE_pruned_filtered.original <- MERGE_pruned_filtered
 #making copies to add in variance stabilized counts later
