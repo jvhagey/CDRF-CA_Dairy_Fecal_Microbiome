@@ -48,9 +48,20 @@ OTU_Tab <- as.data.frame(otu_table(MERGE_pruned_rel_filtered))
 OTU_Sum <- rowSums(OTU_Tab)
 Coverage(OTU_Sum, Estimator = "ZhangHuang", CheckArguments = TRUE)
 
-tab <- coverage(MERGE_pruned_filtered, threshold = 0.99)
-kable(head(tab))
+# -------------------------Checking Stats for Filtering-------------------------------------------------------------------------------#
+#How many singletons are there? How many doubletons? before and after filtering
+singletons <- sum(rowSums(MERGE_pruned@otu_table@.Data)==1) #number of singletons with controls and OTUs not present in any sample removed
+doubletons <- sum(rowSums(MERGE_pruned@otu_table@.Data)==2) #number of doubletons with controls and OTUs not present in any sample removed
+tripletons <- sum(rowSums(MERGE_pruned@otu_table@.Data)==3)
+sum(singletons,doubletons,tripletons)
 
+#----------------------------------------------More Filtering-------------------------------------------------------------------------------------#
+#filtering taxa not seen more than 3 times in 2% of samples (~ 3 samples) --> change % based on number of samples
+#example this data set had 150 samples and I wanted to remove OTUs limited to being seen in 1 sample 1 time
+#you need to filter out enough so the data doesn't have too many zeros, which won't fit negative binomial distribution well see line 167. 
+MERGE_pruned_filtered <- phyloseq::filter_taxa(MERGE_pruned, function(x) sum(x > 3) > (0.02*length(x)), TRUE)
+
+#-------------------------------------------Library Stats------------------------------------------------------------------------------------#
 # Make a data frame with a column for the read counts of each sample
 sample_sum_df <- data.frame(sum = sample_sums(MERGE_pruned_filtered))
 
@@ -65,19 +76,6 @@ ggplot(sample_sum_df, aes(x = sum)) +
 smin <- min(sample_sums(MERGE_pruned_filtered))
 smean <- mean(sample_sums(MERGE_pruned_filtered))
 smax <- max(sample_sums(MERGE_pruned_filtered))
-
-# -------------------------Checking Stats for Filtering-------------------------------------------------------------------------------#
-#How many singletons are there? How many doubletons? before and after filtering
-singletons <- sum(rowSums(MERGE_pruned@otu_table@.Data)==1) #number of singletons with controls and OTUs not present in any sample removed
-doubletons <- sum(rowSums(MERGE_pruned@otu_table@.Data)==2) #number of doubletons with controls and OTUs not present in any sample removed
-tripletons <- sum(rowSums(MERGE_pruned@otu_table@.Data)==3)
-sum(singletons,doubletons,tripletons)
-
-#----------------------------------------------More Filtering-------------------------------------------------------------------------------------#
-#filtering taxa not seen more than 3 times in 2% of samples (~ 3 samples) --> change % based on number of samples
-#example this data set had 150 samples and I wanted to remove OTUs limited to being seen in 1 sample 1 time
-#you need to filter out enough so the data doesn't have too many zeros, which won't fit negative binomial distribution well see line 167. 
-MERGE_pruned_filtered <- phyloseq::filter_taxa(MERGE_pruned, function(x) sum(x > 3) > (0.02*length(x)), TRUE)
 
 #---------------------------------------Cleaning up phyloseq object metadata---------------------------------------------------------#
 #Clean up phyloseq object for later
@@ -233,11 +231,10 @@ TopOTU_FSvsDL <- res_HT_FSvsDL.taxa[1,10:13]
 #The point circled in blue indicates the gene with the lowest adjusted p value.
 
 #Figure 3
-Three_A<-postscript('3A.eps', width=6, height=4)
-plotMA(res_HT[[1]],xlab="Mean of Normalized Counts", ylab="Log Fold Difference", ylim=c(-5.5,5.5), cex.main=1.5,cex.lab=1.25, cex=0.25,main="A")
+Three_A<-plotMA(res_HT[[1]],xlab="Mean of Normalized Counts", ylab="Log Fold Difference", ylim=c(-5.5,5.5), cex.main=1.5,cex.lab=1.25, cex=0.25,main="A")
 with(res_HT[[1]][topOTU[[1]], ], {
   points(baseMean, log2FoldChange, col="dodgerblue", cex=2, lwd=2)
-  text(2.6, 4.8, "Clostridiales", cex=1.5, font= 3, pos=4, col="dodgerblue")
+  text(baseMean, 4.7, "Clostridiales", cex=1.5, font= 3, pos=4, col="dodgerblue")
 })
 with(res_HT[[1]][topOTUchange[[1]], ], {
   points(baseMean, log2FoldChange, col="forestgreen", cex=2, lwd=2)
@@ -253,7 +250,7 @@ with(res_HT[[2]][topOTU[[2]], ], {
 })
 with(res_HT[[2]][topOTUchange[[2]], ], {
   points(baseMean, log2FoldChange, col="forestgreen", cex=2, lwd=2)
- text(4.5, log2FoldChange, "Bifidobacterium", cex=1.5, font= 3, pos=4, col="forestgreen")
+ text(1.8, log2FoldChange, "Bifidobacterium", cex=1.5, font= 3, pos=4, col="forestgreen")
 })
 dev.off()
 
@@ -265,7 +262,7 @@ with(res_HT[[3]][topOTU[[3]], ], {
 })
 with(res_HT[[3]][topOTUchange[[3]], ], {
   points(baseMean, log2FoldChange, col="forestgreen", cex=2, lwd=2)
-  text(4.2, log2FoldChange, "Bifidobacterium", cex=1.5, font= 3, pos=4, col="forestgreen")
+  text(1.8, log2FoldChange, "Bifidobacterium", cex=1.5, font= 3, pos=4, col="forestgreen")
 })
 dev.off()
 
@@ -438,24 +435,41 @@ Meta <- as.data.frame(MERGE_pruned_filtered.HT@sam_data@.Data, col.names = c("Sa
 Phyla_Abun$Farm <- (Meta$Farm)
 Phyla_Abun$HousingType <- (Meta$HousingType)
 #Testing Significance
-kruskal.test(Phyla_Abun$p__Firmicutes ~ HousingType, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$p__Firmicutes ~ Farm, data = Phyla_Abun)
-#kruskal.test(Phyla_Abun$p__Bacteroidetes ~ HousingType, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$p__Bacteroidetes ~ Farm, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$p__Tenericutes ~ HousingType, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$p__Actinobacteria ~ HousingType, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$p__Proteobacteria ~ HousingType, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$p__Tenericutes ~ Farm, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$p__Actinobacteria ~ Farm, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$p__Proteobacteria ~ Farm, data = Phyla_Abun)
-#kruskal.test(Phyla_Abun$p__Spirochaetes ~ HousingType, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$p__Spirochaetes ~ Farm, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$Firmicutes ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$Firmicutes ~ Farm, data = Phyla_Abun)
+#kruskal.test(Phyla_Abun$Bacteroidetes ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$Bacteroidetes ~ Farm, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$Tenericutes ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$_Actinobacteria ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$Proteobacteria ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$Tenericutes ~ Farm, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$Actinobacteria ~ Farm, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$Proteobacteria ~ Farm, data = Phyla_Abun)
+#kruskal.test(Phyla_Abun$Spirochaetes ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$Spirochaetes ~ Farm, data = Phyla_Abun)
+
+#-----------------------------------------------Relative Abundance of Actinobacteria Families By Farm--------------------------------------------------------#
+#Merge samples by Farm
+MERGE_FARM_trans.zero <- merge_samples(MERGE_pruned_filtered.HT.zero, "Farm", fun=mean)
+sample_data(MERGE_FARM_trans.zero)$Farm <- c("Farm 1", "Farm 10", "Farm 2", "Farm 3", "Farm 4", "Farm 5", "Farm 6","Farm 7","Farm 8","Farm 9")
+sample_data(MERGE_FARM_trans.zero)$HousingType <- c("Freestall", "Freestall", "Freestall", "Freestall", "Drylot", "Drylot", "Freestall","Pasture","Pasture","Pasture")
+#calculating relative abundance
+Trans_rel_Farm <- transform_sample_counts(MERGE_FARM_trans.zero, function(x) {100*x/sum(x)})
+
+#subsetting Actinobacteria from transformed counts with negative logs changed to zero and farms averaged
+Bifido_Farm_trans.zero <- subset_taxa(Trans_rel_Farm, Phylum=="Actinobacteria")
+Bifido_Farm_trans.famglom.zero <- tax_glom(Bifido_Farm_trans.zero, "Family")
+
+#writing percent relative abundance
+Bifido_rel_Trans <- t(Bifido_Farm_trans.famglom.zero@otu_table@.Data) #relative abundance of each phyla by farm
+row.names(Bifido_rel_Trans) <- as.data.frame(Bifido_Farm_trans.famglom.zero@tax_table@.Data)$Family
+dplyr::group_by(melt(Bifido_rel_Trans), Var2) %>% rename(Family = Var1, Farm=Var2, relative_abundance=value)
 
 #-----------------------------------------------Bar Graphs Families Significantly Changed by Farm-----------------------------------------#
 #-----------------------------------------------------Bar graphs of Actinobacteria--------------------------------------------------------#
 #subsetting Actinobacteria from transformed counts with negative logs changed to zero and farms averaged
-Bifido_trans.zero <- subset_taxa(MERGE_pruned_filtered.HT.zero, Phylum=="p__Actinobacteria")
-Bifido_Farm_trans.zero <- subset_taxa(MERGE_FARM_trans.zero, Phylum=="p__Actinobacteria")
+Bifido_trans.zero <- subset_taxa(MERGE_pruned_filtered.HT.zero, Phylum=="Actinobacteria")
+Bifido_Farm_trans.zero <- subset_taxa(MERGE_FARM_trans.zero, Phylum=="Actinobacteria")
 Bifido_trans.famglom.zero <- tax_glom(Bifido_trans.zero, "Family")
 Bifido_Farm_trans.famglom.zero <- tax_glom(Bifido_Farm_trans.zero, "Family")
 
@@ -532,7 +546,7 @@ dev.off()
 
 #--------------------------------------Testing Significance of Actino Family Shifts-------------------------------------------------#
 #Making data frame of actino family counts
-Bifido_Farm_trans.zero <- subset_taxa(MERGE_pruned_filtered.HT.zero, Phylum=="p__Actinobacteria")
+Bifido_Farm_trans.zero <- subset_taxa(MERGE_pruned_filtered.HT.zero, Phylum=="Actinobacteria")
 Bifido_Farm_trans.famglom.zero <- tax_glom(Bifido_Farm_trans.zero, "Family")
 #extracting data
 actino_df  <- as.data.frame(t(Bifido_Farm_trans.famglom.zero@otu_table@.Data))
@@ -551,7 +565,7 @@ kruskal.test(actino_df$Ratio ~ Farm, data = actino_df)
 
 #------------------------------------------Bar graphs of Proteobacteria------------------------------------------------------------#
 #subbsetting proteobacteria and merging by family or genus
-Proteo_Farm_trans.zero <- subset_taxa(MERGE_FARM_trans.zero, Phylum=="p__Proteobacteria")
+Proteo_Farm_trans.zero <- subset_taxa(MERGE_FARM_trans.zero, Phylum=="Proteobacteria")
 Proteo_Farm_trans.famglom.zero <- tax_glom(Proteo_Farm_trans.zero, "Family")
 Proteo_Farm_trans.genglom <- tax_glom(Proteo_Farm_trans.zero, "Genus")
 
@@ -618,7 +632,7 @@ dev.off()
 
 #--------------------------------------Testing Significance of Succinivibrionaceae Shifts-------------------------------------------------#
 #Making data frame of actino family counts
-Succ_Farm_trans.zero <- subset_taxa(MERGE_pruned_filtered.HT.zero, Family=="f__Succinivibrionaceae")
+Succ_Farm_trans.zero <- subset_taxa(MERGE_pruned_filtered.HT.zero, Family=="Succinivibrionaceae")
 Succ_Farm_trans.famglom.zero <- tax_glom(Succ_Farm_trans.zero, "Family")
 Succ_df  <- as.data.frame(t(Succ_Farm_trans.famglom.zero@otu_table@.Data))
 Succ_df.taxa  <- as.data.frame(Succ_Farm_trans.famglom.zero@tax_table@.Data)
