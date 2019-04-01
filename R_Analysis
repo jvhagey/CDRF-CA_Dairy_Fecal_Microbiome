@@ -250,7 +250,7 @@ with(res_HT[[2]][topOTU[[2]], ], {
 })
 with(res_HT[[2]][topOTUchange[[2]], ], {
   points(baseMean, log2FoldChange, col="forestgreen", cex=2, lwd=2)
- text(1.8, log2FoldChange, "Bifidobacterium", cex=1.5, font= 3, pos=4, col="forestgreen")
+ text(4.3, log2FoldChange, "Bifidobacterium", cex=1.5, font= 3, pos=4, col="forestgreen")
 })
 dev.off()
 
@@ -262,7 +262,7 @@ with(res_HT[[3]][topOTU[[3]], ], {
 })
 with(res_HT[[3]][topOTUchange[[3]], ], {
   points(baseMean, log2FoldChange, col="forestgreen", cex=2, lwd=2)
-  text(1.8, log2FoldChange, "Bifidobacterium", cex=1.5, font= 3, pos=4, col="forestgreen")
+  text(4.3, log2FoldChange, "Bifidobacterium", cex=1.5, font= 3, pos=4, col="forestgreen")
 })
 dev.off()
 
@@ -287,8 +287,8 @@ write.xlsx(sigtabFam[[1]], "sigtabfam.xlsx", sheetName="Freestall vs Drylot")
 #--------------------------------------------------Graphing Results----------------------------------------------------------------------------#
 #Plot of log2foldchanges
 #Assigning colors to Phylums
-cbPalette <- c("Bacteroidetes"="#56B4E9","Firmicutes"="#CC79A7","Actinobacteria"="#009E73","Proteobacteria"="#000000",
-               "Spirochaetes"="#E69F00","Lentisphaerae"="#0072B2","Tenericutes"="#999999","Verrucomicrobia"="#F0E442")
+cbPalette <- c("Bacteroidetes"="#009E73","Firmicutes"="#CC79A7","Actinobacteria"="#56B4E9","Proteobacteria"="#000000", "Euryarchaeota"="#999999",
+               "Spirochaetes"="#F0E442","Lentisphaerae"="#0072B2","Tenericutes"="#D55E00","Verrucomicrobia"="#E69F00")
 
 #Figure 4
 postscript('4A.eps', width=6.5, height=5)
@@ -298,7 +298,7 @@ ggplot(sigtabFam[[1]], aes(y=Family, x=log2FoldChange, color=Phylum)) +
   geom_point(size=3)+ xlim(-5.5,5.5)+
   labs(y="Family", x="Log2 Fold Difference", title="A")+
   theme(axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))+
-  scale_color_manual(values=cbPalette) +
+  scale_color_manual(values=cbPalette, breaks=sort(as.character(unique(sigtabFam[[1]]$Phylum))))+
   scale_y_discrete(limits = rev(c(level_order[-24],level_order[24])))
 dev.off()
 
@@ -309,7 +309,7 @@ ggplot(sigtabFam[[2]], aes(y=Family, x=log2FoldChange, color=Phylum)) +
   geom_point(size=3)+ xlim(-12,12)+
   labs(y="Family", x="Log2 Fold Difference", title="C")+
   theme(axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))+
-  scale_color_manual(values=cbPalette)+
+ scale_color_manual(values=cbPalette, breaks=sort(as.character(unique(sigtabFam[[2]]$Phylum))))+
   scale_y_discrete(limits = rev(c(level_order[-29],level_order[29])))
 dev.off()
 
@@ -320,7 +320,7 @@ ggplot(sigtabFam[[3]], aes(y=Family, x=log2FoldChange, color=Phylum)) +
   geom_point(size=3)+ xlim(-10,10)+
   labs(y="Family", x="Log2 Fold Difference", title="B")+
   theme(axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))+
-  scale_color_manual(values=cbPalette)+
+  scale_color_manual(values=cbPalette, breaks=sort(as.character(unique(sigtabFam[[2]]$Phylum))))+
   scale_y_discrete(limits = rev(c(level_order[-24],level_order[24])))
 dev.off()
 
@@ -374,6 +374,7 @@ Phylum.5 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Elusimicrobia"))
 Phylum.6 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Fibrobacteres"))
 Phylum.7 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Tenericutes"))
 Phylum.9 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Cyanobacteria"))
+Phylum.8 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Euryarchaeota"))
 Phylum.11 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Spirochaetes"))
 Phylum.12 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Actinobacteria"))
 Phylum.13 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Firmicutes"))
@@ -383,7 +384,7 @@ Phylum.14 = subset_taxa(MERGE_Phylum.zero, Phylum == c("Bacteroidetes"))
 #minor contributors + Bact and Firm
 MERGE_Phylum.sub <- merge_phyloseq(Phylum.13, Phylum.14,Phylum.12, Phylum.3, Phylum.7,Phylum.11)
 #everything, but Bact and Firm
-MERGE_Phylum.sub2 <- merge_phyloseq(Phylum.1,Phylum.2,Phylum.6,Phylum.5,Phylum.9,Phylum.12, Phylum.4, Phylum.3, Phylum.7,Phylum.11)
+MERGE_Phylum.sub2 <- merge_phyloseq(Phylum.1,Phylum.2,Phylum.6,Phylum.5,Phylum.8,Phylum.9,Phylum.12, Phylum.4, Phylum.3, Phylum.7,Phylum.11)
 #Relative abundance of everything
 Phylum_rel <- transform_sample_counts(MERGE_Phylum_HT.zero, function(x) 100*x/sum(x))
 #------------------------------Graphing relative transformed abundances with different phylums-------------------------------------------#
@@ -423,30 +424,30 @@ plot_bar(MERGE_Phylum.sub.HT, x="HousingType", y="Abundance", fill= "Phylum")+
   scale_color_discrete(name="Phylum", breaks=(breaks_Phylum), labels=(labels_Phylum))
 
 #-----------------------------------Determining significance of phyla differential Abundance----------------------------------------#
-#Merging OTUs by Phylum
-MERGE_Phylum_HT <- tax_glom(MERGE_pruned_filtered.HT, "Phylum")
-Phyla_Abun <- as.matrix(MERGE_Phylum_HT@otu_table@.Data)
-row.names(Phyla_Abun) <-MERGE_Phylum_HT@tax_table@.Data[,2]
-#checking normality
-apply(Phyla_Abun, 1, function(Phyla_Abun) shapiro.test(Phyla_Abun))
+#Extracting relative abundance of phyla for significance testing
+Phyla_Abun <- as.matrix(MERGE_rel@otu_table@.Data)
+row.names(Phyla_Abun) <- MERGE_rel@tax_table@.Data[,2]
 #Adding meta data
 Phyla_Abun <- as.data.frame(t(Phyla_Abun))
 Meta <- as.data.frame(MERGE_pruned_filtered.HT@sam_data@.Data, col.names = c("SampleID","CowID","Sample","Farm","FarmType","HousingType","A", "B","C"))
 Phyla_Abun$Farm <- (Meta$Farm)
 Phyla_Abun$HousingType <- (Meta$HousingType)
+dplyr::group_by(Phyla_Abun, HousingType)
+
 #Testing Significance
-kruskal.test(Phyla_Abun$Firmicutes ~ HousingType, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$Firmicutes ~ Farm, data = Phyla_Abun)
+#kruskal.test(Phyla_Abun$Firmicutes ~ HousingType, data = Phyla_Abun)
 #kruskal.test(Phyla_Abun$Bacteroidetes ~ HousingType, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$Bacteroidetes ~ Farm, data = Phyla_Abun)
+#kruskal.test(Phyla_Abun$Planctomycetes ~ HousingType, data = Phyla_Abun)
 kruskal.test(Phyla_Abun$Tenericutes ~ HousingType, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$_Actinobacteria ~ HousingType, data = Phyla_Abun)
+#kruskal.test(Phyla_Abun$Actinobacteria ~ HousingType, data = Phyla_Abun)
 kruskal.test(Phyla_Abun$Proteobacteria ~ HousingType, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$Tenericutes ~ Farm, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$Actinobacteria ~ Farm, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$Proteobacteria ~ Farm, data = Phyla_Abun)
-#kruskal.test(Phyla_Abun$Spirochaetes ~ HousingType, data = Phyla_Abun)
-kruskal.test(Phyla_Abun$Spirochaetes ~ Farm, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$Verrucomicrobia ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$Lentisphaerae ~ HousingType, data = Phyla_Abun)
+#kruskal.test(Phyla_Abun$Elusimicrobia ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$Spirochaetes ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$Fibrobacteres ~ HousingType, data = Phyla_Abun)
+#kruskal.test(Phyla_Abun$Cyanobacteria ~ HousingType, data = Phyla_Abun)
+kruskal.test(Phyla_Abun$Euryarchaeota ~ HousingType, data = Phyla_Abun)
 
 #-----------------------------------------------Relative Abundance of Actinobacteria Families By Farm--------------------------------------------------------#
 #Merge samples by Farm
@@ -466,30 +467,49 @@ row.names(Bifido_rel_Trans) <- as.data.frame(Bifido_Farm_trans.famglom.zero@tax_
 dplyr::group_by(melt(Bifido_rel_Trans), Var2) %>% rename(Family = Var1, Farm=Var2, relative_abundance=value)
 
 #-----------------------------------------------Bar Graphs Families Significantly Changed by Farm-----------------------------------------#
-#-----------------------------------------------------Bar graphs of Actinobacteria--------------------------------------------------------#
-#subsetting Actinobacteria from transformed counts with negative logs changed to zero and farms averaged
-Bifido_trans.zero <- subset_taxa(MERGE_pruned_filtered.HT.zero, Phylum=="Actinobacteria")
-Bifido_Farm_trans.zero <- subset_taxa(MERGE_FARM_trans.zero, Phylum=="Actinobacteria")
-Bifido_trans.famglom.zero <- tax_glom(Bifido_trans.zero, "Family")
-Bifido_Farm_trans.famglom.zero <- tax_glom(Bifido_Farm_trans.zero, "Family")
+#-----------------------------------------Calculating relative Abundance of Actinobacteria Families by Farm--------------------------------#
+#Merge samples by Farm
+MERGE_FARM_trans.zero <- merge_samples(MERGE_pruned_filtered.HT.zero, "Farm", fun=mean)
+sample_data(MERGE_FARM_trans.zero)$Farm <- c("Farm 1", "Farm 10", "Farm 2", "Farm 3", "Farm 4", "Farm 5", "Farm 6","Farm 7","Farm 8","Farm 9")
+sample_data(MERGE_FARM_trans.zero)$HousingType <- c("Freestall", "Freestall", "Freestall", "Freestall", "Drylot", "Drylot", "Freestall","Pasture","Pasture","Pasture")
+#calculating relative abundance
+Trans_rel_Farm <- transform_sample_counts(MERGE_FARM_trans.zero, function(x) {100*x/sum(x)})
 
 #writing results to excel sheet
 Bifido_otutable_transZero <- t(Bifido_Farm_trans.zero@otu_table@.Data)
 Bifido_otutable_transZero_taxa <- Bifido_Farm_trans.zero@tax_table@.Data
-write.xlsx(Bifido_otutable_transZero_taxa, "C:/Users/Jill/OneDrive/Documents/collaboration/dairy sequencing/Bifido_otutable_transZero_taxa.xlsx")
+write.xlsx(Bifido_otutable_transZero_taxa, "Bifido_otutable_transZero_taxa.xlsx")
 
-#calculating relative abundance
-Bifido_rel <- transform_sample_counts(Bifido_Farm_trans.famglom.zero, function(x) {100*x/sum(x)})
+#writing percent relative abundance
+Bifido_rel_Trans <- t(Bifido_Farm_trans.famglom.zero@otu_table@.Data) #relative abundance of each phyla by farm
+row.names(Bifido_rel_Trans) <- as.data.frame(Bifido_Farm_trans.famglom.zero@tax_table@.Data)$Family
+dplyr::group_by(reshape2::melt(Bifido_rel_Trans), Var2) %>% rename(Family = Var1, Farm=Var2, relative_abundance=value)
+tab_2 <- as.data.frame(dplyr::summarise(grouped_fam, mean=mean(value), sd=sd(value), sem = (sd(value)/sqrt(length(value)))))
+arrange(tab_2, -mean)#print table ordered by mean
 
-#bar plots of actinobacteria
-plot_bar(Bifido_rel, fill = "Family", title = "Transformed Relative Abundance of Actinobacteria Families")+
-  geom_bar(aes(color=Family, fill=Family), stat="identity", position="stack")+
-  geom_abline(intercept = 0, slope = 0)+
-  labs(y="Percent Relative Abundance", x= "Farm")+
-  theme(axis.text.x=element_text(angle=315),strip.text=element_text(face = "bold"), axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"))+
-  facet_grid(. ~ HousingType, labeller = as_labeller(Both_names), scales="free")+
-  scale_fill_manual(name="Family", breaks=c(breaks_Family),labels=c(labels_Family))+
-  scale_color_manual(name="Family", breaks=c(breaks_Family),labels=c(labels_Family))
+#--------------------------------------Testing Significance of Actino Family Shifts-------------------------------------------------#
+#Making data frame of actino family counts
+Bifido_Farm_trans.zero <- subset_taxa(MERGE_pruned_filtered.HT.zero, Phylum=="Actinobacteria")
+Bifido_Farm_trans.famglom.zero <- tax_glom(Bifido_Farm_trans.zero, "Family")
+#extracting data
+actino_df  <- as.data.frame(t(Bifido_Farm_trans.famglom.zero@otu_table@.Data))
+actino_df.taxa  <- as.data.frame(Bifido_Farm_trans.famglom.zero@tax_table@.Data)
+actino_Meta <- as.data.frame(Bifido_Farm_trans.famglom.zero@sam_data@.Data , col.names = c("Sample","CowID", "What","Farm","FarmType","HousingType","Trans_ID", "Day", "Details"))
+#renaming columns and adding meta data
+colnames(actino_df) <- c("Coriobacteriaceae", "Bifidobacteriaceae")
+actino_df$Farm <- (actino_Meta$Farm)
+actino_df$HousingType <- (actino_Meta$HousingType)
+actino_df$Ratio <- (actino_df$Bifidobacteriaceae/actino_df$Coriobacteriaceae)
+
+kruskal.test(actino_df$Coriobacteriaceae ~ HousingType, data = actino_df)
+kruskal.test(actino_df$Bifidobacteriaceae ~ HousingType, data = actino_df)
+kruskal.test(actino_df$Ratio ~ HousingType, data = actino_df)
+kruskal.test(actino_df$Ratio ~ Farm, data = actino_df)
+
+#-----------------------------------------------------Bar graphs of Actinobacteria--------------------------------------------------------#
+#subsetting Actinobacteria from transformed counts with negative logs changed to zero and farms averaged
+Bifido_Farm_trans.zero <- subset_taxa(MERGE_FARM_trans.zero, Phylum=="Actinobacteria")
+Bifido_Farm_trans.famglom.zero <- tax_glom(Bifido_Farm_trans.zero, "Family")
 
 #Figure 5A
 grid.newpage()
@@ -512,56 +532,25 @@ plot_ordered_bar<-function (Bifido_Farm_trans.famglom.zero, x = "Farm", y = "Abu
   bb <- psmelt(Bifido_Farm_trans.famglom.zero)
   samp_names <- aggregate(bb$Abundance, by=list(bb$Farm), FUN=sum)[,1]
   .e <- environment()
-  bb[,fill]<- factor(bb[,fill], rev(sort(unique(bb[,fill])))) #fill to genus
+  bb[,fill]<- factor(bb[,fill], sort(unique(bb[,fill]))) #fill to genus
   bb<- bb[order(bb[,fill]),] # genus to fill
   p = ggplot(bb, aes_string(x = x, y = y, fill = fill), environment = .e, ordered = FALSE)
   p = p + geom_bar(aes(color=Family, fill = Family),stat="identity",position="stack", width=0.5)
-  p = p + labs(y="Transformed Abundance", x= "Farm", title="A")
+  p = p + labs(y="Transformed \n Abundance", x= "Farm", title="A")
   p = p + geom_abline(intercept = 0, slope = 0)
   p = p + theme_bw()
-  p = p + theme(plot.title=element_text(face="bold", hjust=0),axis.text.x=element_text(angle=300,hjust=0.08),strip.text=element_text(face = "bold"), axis.text= element_text(face = "bold"), axis.title=element_text(face = "bold"), legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold")
-                panel.grid.major.x = element_blank(),panel.grid.minor.y=element_blank())
-  p = p + facet_grid(.~ HousingType, labeller = as_labeller(Both_names), scales="free_x", space="free")
-  p = p + scale_fill_manual(name="Family", breaks=c(breaks_Family),labels=c(labels_Family), values=c("#7570b3","#1b9e77"))
-  p = p + scale_color_manual(name="Family", breaks=c(breaks_Family),labels=c(labels_Family), values=c("#7570b3","#1b9e77"))
+  p = p + theme(plot.title=element_text(face="bold", hjust=0),axis.text.x=element_text(angle=300,hjust=0.08),strip.text=element_text(face = "bold"), panel.border = element_blank(),
+                axis.line.x = element_line(size = 0.5, linetype = "solid", colour = "black"), axis.line.y = element_line(size = 0.5, linetype = "solid", colour = "black"),
+                axis.text= element_text(face = "bold"), axis.title.y=element_text(face = "bold"), axis.title.x=element_blank(),legend.text=element_text(face = "bold"), legend.title=element_text(face = "bold"),
+                panel.spacing.x=unit(0, "lines"),panel.spacing.y=unit(0.4, "lines"), panel.grid.major.x = element_blank(),panel.grid.minor.y=element_blank())
+  p = p + facet_grid(.~ HousingType, scales="free_x", space="free")
+  p = p + scale_fill_manual(values=c("#1b9e77","#7570b3"))
+  p = p + scale_color_manual(values=c("#1b9e77","#7570b3"))
   if (!is.null(title)) {
     p <- p + ggtitle(title)
   }
   return(p)
 }
-One_A <-plot_ordered_bar(Bifido_Farm_trans.famglom.zero, fill = "Family")
-postscript('1A.eps', width=6, height=3)
-plot_ordered_bar(Bifido_Farm_trans.famglom.zero, fill = "Family")
-dev.off()
-
-#Figure 5A
-plot_ordered_bar(Bifido_Farm_trans.famglom.zero, fill = "Family")
-postscript('5A.eps', width=6, height=3)
-plot_ordered_bar(Bifido_Farm_trans.famglom.zero, fill = "Family")
-dev.off()
-#Figure 5B
-postscript('5B.eps', width=6, height=3)
-plot_ordered_bar(Proteo_Farm_trans.famglom.zero, fill = "Family")
-dev.off()
-
-#--------------------------------------Testing Significance of Actino Family Shifts-------------------------------------------------#
-#Making data frame of actino family counts
-Bifido_Farm_trans.zero <- subset_taxa(MERGE_pruned_filtered.HT.zero, Phylum=="Actinobacteria")
-Bifido_Farm_trans.famglom.zero <- tax_glom(Bifido_Farm_trans.zero, "Family")
-#extracting data
-actino_df  <- as.data.frame(t(Bifido_Farm_trans.famglom.zero@otu_table@.Data))
-actino_df.taxa  <- as.data.frame(Bifido_Farm_trans.famglom.zero@tax_table@.Data)
-actino_Meta <- as.data.frame(Bifido_Farm_trans.famglom.zero@sam_data@.Data , col.names = c("Sample","CowID", "What","Farm","FarmType","HousingType","Trans_ID", "Day", "Details"))
-#renaming columns and adding meta data
-colnames(actino_df) <- c("Coriobacteriaceae", "Bifidobacteriaceae")
-actino_df$Farm <- (actino_Meta$Farm)
-actino_df$HousingType <- (actino_Meta$HousingType)
-actino_df$Ratio <- (actino_df$Bifidobacteriaceae/actino_df$Coriobacteriaceae)
-
-kruskal.test(actino_df$Coriobacteriaceae ~ HousingType, data = actino_df)
-kruskal.test(actino_df$Bifidobacteriaceae ~ HousingType, data = actino_df)
-kruskal.test(actino_df$Ratio ~ HousingType, data = actino_df)
-kruskal.test(actino_df$Ratio ~ Farm, data = actino_df)
 
 #------------------------------------------Bar graphs of Proteobacteria------------------------------------------------------------#
 #subbsetting proteobacteria and merging by family or genus
@@ -625,9 +614,15 @@ plot_ordered_bar<-function (Proteo_Farm_trans.famglom.zero, x = "Farm", y = "Abu
   }
   return(p)
 }
-One_B <-plot_ordered_bar(Proteo_Farm_trans.famglom.zero, fill = "Family")
-postscript('1B.eps', width=6, height=3)
-plot_ordered_bar(Proteo_Farm_trans.famglom.zero, fill = "Family")
+
+#------------------------------------Graphing Figure5 ------------------------------------------------------------------------------------#
+#Figure 5A
+postscript('5A.eps', width=6, height=3)
+plot_ordered_bar_Bif(Bifido_Farm_trans.famglom.zero, fill = "Family")
+dev.off()
+#Figure 5B
+postscript('5B.eps', width=6, height=3)
+plot_ordered_bar_pro(Proteo_Farm_trans.famglom.zero, fill = "Family")
 dev.off()
 
 #--------------------------------------Testing Significance of Succinivibrionaceae Shifts-------------------------------------------------#
