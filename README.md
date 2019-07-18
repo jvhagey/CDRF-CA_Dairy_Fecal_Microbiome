@@ -12,4 +12,4 @@ Scripts for sequence processing and R analysis
 8. Seq_info.csv contains the sequence names and taxa names from RDP database used to make the references tree of 16S sequences for pathogens.
 9. Full_Tree.xml is the tree of near full length 16S rRNA sequences of pathogens of interest with reads from data set placed on the tree.
 
-Paper:
+[Paper:](https://www.frontiersin.org/articles/10.3389/fmicb.2019.01093/full)
